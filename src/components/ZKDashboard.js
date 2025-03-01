@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ProofManager } from '../services/zkProofManager';
 import zkContractService from '../services/zkContractService';
 import ProofDetailsViewer from './ProofDetailsViewer';
+import ZkStatusIndicator from './ZkStatusIndicator';
 
 const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGenerated }) => {
   const [status, setStatus] = useState('idle'); // idle, initializing, generating, verifying, storing, success, error
@@ -12,8 +13,10 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
   const [progress, setProgress] = useState(0);
   const [contractStatus, setContractStatus] = useState('idle'); // idle, storing, success, error
   const [blockchainTxHash, setBlockchainTxHash] = useState(null);
+  const [simulationMode, setSimulationMode] = useState(false);
   
-  const proofManager = new ProofManager();
+  // Create a ref to maintain a single instance of the proof manager
+  const proofManagerRef = useRef(null);
   
   // Initialize services when component mounts
   useEffect(() => {
@@ -22,8 +25,26 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
         try {
           setStatus('initializing');
           
+          // Create a new ProofManager instance if not already created
+          if (!proofManagerRef.current) {
+            console.log('Creating new ProofManager instance');
+            proofManagerRef.current = new ProofManager();
+          }
+          
           // Initialize proof manager
-          await proofManager.initialize(account);
+          console.log('Initializing proof manager with account:', account);
+          await proofManagerRef.current.initialize(account);
+          
+          // Check if we're in simulation mode
+          if (proofManagerRef.current.zkProvider.simulationMode || 
+              (proofManagerRef.current.zkProvider.session && 
+               proofManagerRef.current.zkProvider.session.simulationMode)) {
+            console.log('ZK verification running in simulation mode');
+            setSimulationMode(true);
+          } else {
+            console.log('ZK verification running in real mode with zkVerify');
+            setSimulationMode(false);
+          }
           
           // Initialize contract service
           zkContractService.initialize(contract, account);
@@ -56,7 +77,10 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
     
     // Clean up when component unmounts
     return () => {
-      proofManager.cleanup();
+      if (proofManagerRef.current) {
+        console.log('Cleaning up ProofManager');
+        proofManagerRef.current.cleanup();
+      }
     };
   }, [account, contract, username]);
   
@@ -114,8 +138,16 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
 
   // Function to generate all proofs sequentially
   const generateAllProofs = async () => {
+    // First check if proofManager is available
+    if (!proofManagerRef.current) {
+      setError('Proof manager not initialized. Please reload the page and try again.');
+      setStatus('error');
+      return;
+    }
+
     if (!privateRepoData || !account || !username) {
       setError('Missing required data for proof generation');
+      setStatus('error');
       return;
     }
 
@@ -127,6 +159,9 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
       setProgress(0);
       setBlockchainTxHash(null);
       setContractStatus('idle');
+
+      // Ensure ProofManager is initialized
+      await proofManagerRef.current.initialize(account);
 
       // Generate each proof type sequentially
       const generatedProofs = [];
@@ -143,13 +178,13 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
         let proofResult;
         switch (proofType.id) {
           case 'codeMetrics':
-            proofResult = await proofManager.proveCodeMetrics({
+            proofResult = await proofManagerRef.current.proveCodeMetrics({
               ...privateRepoData,
               walletAddress: account
             });
             break;
           case 'activity':
-            proofResult = await proofManager.proveActivity({
+            proofResult = await proofManagerRef.current.proveActivity({
               contributionCount: privateRepoData.contributionCount || Math.floor(Math.random() * 1000),
               activeDays: privateRepoData.activeDays || Math.floor(Math.random() * 365),
               longestStreak: privateRepoData.longestStreak || Math.floor(Math.random() * 100),
@@ -159,7 +194,7 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
             });
             break;
           case 'ownership':
-            proofResult = await proofManager.proveOwnership({
+            proofResult = await proofManagerRef.current.proveOwnership({
               username,
               repoCount: privateRepoData.totalPrivateRepos,
               walletAddress: account,
@@ -168,7 +203,7 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
             });
             break;
           case 'language':
-            proofResult = await proofManager.proveLanguage({
+            proofResult = await proofManagerRef.current.proveLanguage({
               languages: privateRepoData.languageStats || {},
               primaryLanguage: Object.entries(privateRepoData.languageStats || {})
                 .sort((a, b) => b[1] - a[1])[0]?.[0] || 'JavaScript',
@@ -281,6 +316,10 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
           Generate ZK proofs to include your private repository data without revealing sensitive information.
           These proofs are verified on the zkVerify blockchain to maintain data privacy.
         </p>
+        
+        <div className="mt-3">
+          <ZkStatusIndicator simulationMode={simulationMode} />
+        </div>
       </div>
       
       {/* Status indicator */}

@@ -6,7 +6,6 @@ import { ethers } from 'ethers';
 import ConnectWallet from './components/ConnectWallet';
 import ConnectGitHub from './components/ConnectGithub';
 import UsernameInput from './components/UsernameInput';
-import ZKPrivateProof from './components/ZKPrivateProof';
 import ProfileResults from './components/ProfileResults';
 import VerificationSuccess from './components/VerificationSuccess';
 import VerificationFailed from './components/VerificationFailed';
@@ -18,6 +17,7 @@ import { CONTRACT_ABI } from './constants/contractAbi';
 function App() {
   // State for wallet connection
   const [account, setAccount] = useState(null);
+  const [walletType, setWalletType] = useState('ethereum'); // Default to 'ethereum' for compatibility
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [contract, setContract] = useState(null);
@@ -27,7 +27,7 @@ function App() {
   const [verifiedUsername, setVerifiedUsername] = useState(null);
   const [verificationStatus, setVerificationStatus] = useState({
     verified: false,
-    checking: true
+    checking: false  // Changed from true to false to prevent loading screen hanging
   });
   
   // Contract config
@@ -36,41 +36,51 @@ function App() {
   // Initialize provider and check if wallet is already connected
   useEffect(() => {
     const init = async () => {
-      // Check if ethereum is available (MetaMask or other wallet)
-      if (window.ethereum) {
-        try {
+      try {
+        // Clear any previous connection data if it's causing issues
+        // Uncomment the next line if you want to start fresh
+        // localStorage.removeItem('connectedAccount');
+        
+        // Check if ethereum is available (MetaMask or other wallet)
+        if (window.ethereum) {
           // Create ethers provider
           const provider = new ethers.providers.Web3Provider(window.ethereum);
           setProvider(provider);
           
-          // Get accounts
+          // Check if we have accounts without requesting new access
           const accounts = await provider.listAccounts();
           
           if (accounts.length > 0) {
+            console.log("Found connected account:", accounts[0]);
             setAccount(accounts[0]);
             const signer = provider.getSigner();
             setSigner(signer);
             
             // Initialize contract
             if (contractAddress) {
-              const contract = new ethers.Contract(
-                contractAddress,
-                CONTRACT_ABI,
-                signer
-              );
-              setContract(contract);
-              
-              // Check GitHub verification status
-              await checkGitHubVerification(contract, accounts[0]);
+              try {
+                const contract = new ethers.Contract(
+                  contractAddress,
+                  CONTRACT_ABI,
+                  signer
+                );
+                setContract(contract);
+                
+                // Check GitHub verification status
+                await checkGitHubVerification(contract, accounts[0]);
+              } catch (contractError) {
+                console.error("Contract initialization error:", contractError);
+                // Continue without contract
+              }
             }
           }
-        } catch (error) {
-          console.error("Failed to connect to wallet:", error);
-          setVerificationStatus({ verified: false, checking: false });
         }
+      } catch (error) {
+        console.error("Initialization error:", error);
+      } finally {
+        // Always set loading to false, even if there are errors
+        setLoading(false);
       }
-      
-      setLoading(false);
     };
     
     init();
@@ -98,18 +108,21 @@ function App() {
   };
   
   // Function to connect wallet
-  const connectWallet = async () => {
-    if (window.ethereum) {
-      try {
-        setLoading(true);
-        
-        // Request account access
-        const accounts = await window.ethereum.request({ 
-          method: 'eth_requestAccounts' 
-        });
-        
-        // Update app state
-        setAccount(accounts[0]);
+  const connectWallet = async (address, walletType, walletProvider) => {
+    if (!address || !walletProvider) {
+      console.error("Invalid connect wallet parameters");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      
+      if (walletType === 'ethereum' || !walletType) {
+        // Default to Ethereum if type is not specified
+        const provider = new ethers.providers.Web3Provider(walletProvider);
+        setProvider(provider);
+        setAccount(address);
+        setWalletType('ethereum');
         
         // Get signer
         const signer = provider.getSigner();
@@ -117,24 +130,33 @@ function App() {
         
         // Initialize contract
         if (contractAddress) {
-          const contract = new ethers.Contract(
-            contractAddress,
-            CONTRACT_ABI,
-            signer
-          );
-          setContract(contract);
-          
-          // Check GitHub verification status
-          await checkGitHubVerification(contract, accounts[0]);
+          try {
+            const contract = new ethers.Contract(
+              contractAddress,
+              CONTRACT_ABI,
+              signer
+            );
+            setContract(contract);
+            
+            // Check GitHub verification status
+            await checkGitHubVerification(contract, address);
+          } catch (contractError) {
+            console.error("Contract initialization error:", contractError);
+            // Continue without contract
+          }
         }
-      } catch (error) {
-        console.error("Failed to connect to wallet:", error);
+      } else if (walletType === 'polkadot') {
+        // Basic Polkadot wallet handling for now
+        setAccount(address);
+        setWalletType('polkadot');
+        // We'll implement the rest of Polkadot integration later
         setVerificationStatus({ verified: false, checking: false });
-      } finally {
-        setLoading(false);
       }
-    } else {
-      alert("Please install MetaMask or another Ethereum wallet!");
+    } catch (error) {
+      console.error("Failed to connect to wallet:", error);
+      setVerificationStatus({ verified: false, checking: false });
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -145,6 +167,11 @@ function App() {
     setContract(null);
     setVerifiedUsername(null);
     setVerificationStatus({ verified: false, checking: false });
+    setWalletType('ethereum'); // Reset to default
+    
+    // Clear saved connection info
+    localStorage.removeItem('connectedAccount');
+    localStorage.removeItem('walletType');
   };
   
   // Function to handle successful GitHub verification
@@ -155,52 +182,64 @@ function App() {
   
   // Listen for account changes
   useEffect(() => {
-    if (window.ethereum) {
-      window.ethereum.on('accountsChanged', async (accounts) => {
+    if (window.ethereum && walletType === 'ethereum') {
+      const handleAccountsChanged = async (accounts) => {
         if (accounts.length > 0) {
           setAccount(accounts[0]);
-          const signer = provider.getSigner();
-          setSigner(signer);
           
-          // Reinitialize contract with new signer
-          if (contractAddress) {
-            const contract = new ethers.Contract(
-              contractAddress,
-              CONTRACT_ABI,
-              signer
-            );
-            setContract(contract);
+          if (provider) {
+            const ethSigner = provider.getSigner();
+            setSigner(ethSigner);
             
-            // Check GitHub verification status for the new account
-            await checkGitHubVerification(contract, accounts[0]);
+            // Reinitialize contract with new signer
+            if (contractAddress) {
+              try {
+                const ethContract = new ethers.Contract(
+                  contractAddress,
+                  CONTRACT_ABI,
+                  ethSigner
+                );
+                setContract(ethContract);
+                
+                // Check GitHub verification status for the new account
+                await checkGitHubVerification(ethContract, accounts[0]);
+              } catch (error) {
+                console.error("Contract reinitialization error:", error);
+              }
+            }
           }
         } else {
           // User disconnected all accounts
           disconnectWallet();
         }
-      });
+      };
       
-      window.ethereum.on('chainChanged', () => {
+      const handleChainChanged = () => {
         // Reload the page on chain change
         window.location.reload();
-      });
+      };
+      
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+      window.ethereum.on('chainChanged', handleChainChanged);
+      
+      return () => {
+        // Clean up listeners
+        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+        window.ethereum.removeListener('chainChanged', handleChainChanged);
+      };
     }
-    
-    return () => {
-      // Clean up listeners
-      if (window.ethereum) {
-        window.ethereum.removeAllListeners('accountsChanged');
-        window.ethereum.removeAllListeners('chainChanged');
-      }
-    };
-  }, [contractAddress, provider]);
+  }, [contractAddress, provider, walletType]);
   
-  if (loading || verificationStatus.checking) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
           <p className="mt-4 text-gray-700">Loading application...</p>
+          {/* Add a timeout message after a few seconds */}
+          <p className="mt-2 text-sm text-gray-500">
+            If loading takes too long, try refreshing the page.
+          </p>
         </div>
       </div>
     );
@@ -211,6 +250,7 @@ function App() {
       <div className="min-h-screen bg-gray-100">
         <Navbar 
           account={account} 
+          walletType={walletType}
           onDisconnect={disconnectWallet}
           username={verifiedUsername}
           verified={verificationStatus.verified}
@@ -245,6 +285,7 @@ function App() {
                   <ConnectGitHub 
                     account={account} 
                     contract={contract}
+                    walletType={walletType}
                     onVerificationSuccess={handleVerificationSuccess}
                   />
                 ) : (
@@ -261,6 +302,7 @@ function App() {
                   <UsernameInput 
                     account={account} 
                     contract={contract}
+                    walletType={walletType}
                     verified={verificationStatus.verified}
                   />
                 ) : (
@@ -277,6 +319,7 @@ function App() {
                   <ProfileResults 
                     account={account} 
                     contract={contract}
+                    walletType={walletType}
                     isVerified={verificationStatus.verified}
                     verifiedUsername={verifiedUsername}
                   />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ProofManager } from '../services/zkProofManager';
 
 const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofGenerated }) => {
@@ -9,34 +9,51 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
     verificationResult: null
   });
 
-  const proofManager = new ProofManager();
+  // Create a ref to maintain a single instance of the proof manager
+  const proofManagerRef = useRef(null);
 
-  // Initialize the proof manager when component mounts or when account changes
+  // Initialize the proof manager when component mounts
   useEffect(() => {
     const initializeProofManager = async () => {
-      if (account) {
-        try {
-          setState(prev => ({ ...prev, status: 'initializing' }));
-          await proofManager.initialize(account);
-          setState(prev => ({ ...prev, status: 'idle' }));
-        } catch (error) {
-          console.error('Failed to initialize proof manager:', error);
-          setState(prev => ({
-            ...prev,
-            status: 'error',
-            error: 'Failed to initialize ZK proof system: ' + error.message
-          }));
+      if (!account) {
+        console.error('Cannot initialize proof manager: No account provided');
+        return;
+      }
+      
+      try {
+        setState(prev => ({ ...prev, status: 'initializing' }));
+        
+        // Create a new ProofManager instance if not already created
+        if (!proofManagerRef.current) {
+          console.log('Creating new ProofManager instance');
+          proofManagerRef.current = new ProofManager();
         }
+        
+        // Initialize the proof manager with the account
+        await proofManagerRef.current.initialize(account);
+        console.log('ProofManager initialized successfully with account:', account);
+        setState(prev => ({ ...prev, status: 'idle' }));
+      } catch (error) {
+        console.error('Failed to initialize proof manager:', error);
+        setState(prev => ({
+          ...prev,
+          status: 'error',
+          error: 'Failed to initialize ZK proof system: ' + error.message
+        }));
       }
     };
 
+    // Call initialization function
     initializeProofManager();
 
     // Clean up when component unmounts
     return () => {
-      proofManager.cleanup();
+      if (proofManagerRef.current) {
+        console.log('Cleaning up ProofManager');
+        proofManagerRef.current.cleanup();
+      }
     };
-  }, [account]);
+  }, [account]); // Only re-run if account changes
 
   // Reset state when username or privateRepoData changes
   useEffect(() => {
@@ -84,6 +101,16 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
 
   // Generate all proofs
   const generateProofs = async () => {
+    // First, check if ProofManager is initialized
+    if (!proofManagerRef.current) {
+      setState(prev => ({
+        ...prev,
+        status: 'error',
+        error: 'Proof manager not initialized. Please try again.'
+      }));
+      return;
+    }
+
     if (!privateRepoData || !privateRepoData.accessToken) {
       setState(prev => ({
         ...prev,
@@ -98,7 +125,7 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
 
       // Generate code metrics proof (RiscZero)
       console.log('Starting code metrics proof generation...');
-      const codeMetricsProof = await proofManager.proveCodeMetrics({
+      const codeMetricsProof = await proofManagerRef.current.proveCodeMetrics({
         ...privateRepoData,
         walletAddress: account
       });
@@ -118,7 +145,7 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
 
       // Generate activity proof (Noir)
       console.log('Starting activity proof generation...');
-      const activityProof = await proofManager.proveActivity({
+      const activityProof = await proofManagerRef.current.proveActivity({
         contributionCount: privateRepoData.contributionCount || Math.floor(Math.random() * 1000),
         activeDays: privateRepoData.activeDays || Math.floor(Math.random() * 365),
         longestStreak: privateRepoData.longestStreak || Math.floor(Math.random() * 100),
@@ -141,7 +168,7 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
 
       // Generate ownership proof (Groth16)
       console.log('Starting ownership proof generation...');
-      const ownershipProof = await proofManager.proveOwnership({
+      const ownershipProof = await proofManagerRef.current.proveOwnership({
         username,
         repoCount: privateRepoData.totalPrivateRepos,
         walletAddress: account,
@@ -163,7 +190,7 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
 
       // Generate language proof (FFlonk)
       console.log('Starting language proof generation...');
-      const languageProof = await proofManager.proveLanguage({
+      const languageProof = await proofManagerRef.current.proveLanguage({
         languages: privateRepoData.languageStats || {},
         primaryLanguage: Object.entries(privateRepoData.languageStats || {})
           .sort((a, b) => b[1] - a[1])[0]?.[0] || 'JavaScript',
@@ -357,7 +384,7 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
                             <div className="text-right">
                               {proof.txHash && (
                                 <a 
-                                  href={`https://explorer.zkverify.io/tx/${proof.txHash}`}
+                                  href={`https://testnet-explorer.zkverify.io/tx/${proof.txHash}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-blue-600 hover:text-blue-800 font-mono"

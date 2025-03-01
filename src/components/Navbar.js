@@ -1,11 +1,47 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 
-const Navbar = ({ account, onDisconnect, username, verified }) => {
+const Navbar = ({ account, walletType, onDisconnect, username, verified }) => {
   // Format address for display
   const formatAddress = (address) => {
     if (!address) return '';
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+  };
+
+  // Get wallet icon based on type
+  const getWalletIcon = () => {
+    switch(walletType) {
+      case 'ethereum':
+        return (
+          <svg 
+            className="h-4 w-4 text-green-300 inline mr-1" 
+            fill="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path d="M11.944 17.97L4.58 13.62 11.943 24l7.37-10.38-7.372 4.35h.003zM12.056 0L4.69 12.223l7.365 4.354 7.365-4.35L12.056 0z" />
+          </svg>
+        );
+      case 'polkadot':
+        return (
+          <svg 
+            className="h-4 w-4 text-pink-300 inline mr-1" 
+            fill="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <circle cx="12" cy="12" r="12" />
+          </svg>
+        );
+      default:
+        return (
+          <svg 
+            className="h-4 w-4 text-green-300 inline mr-1" 
+            fill="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <circle cx="12" cy="12" r="4" />
+          </svg>
+        );
+    }
   };
 
   return (
@@ -76,16 +112,13 @@ const Navbar = ({ account, onDisconnect, username, verified }) => {
                   </Link>
                 )}
                 
-                {/* Wallet Address */}
-                <span className="text-white mr-3">
-                  <svg 
-                    className="h-4 w-4 text-green-300 inline mr-1" 
-                    fill="currentColor" 
-                    viewBox="0 0 24 24"
-                  >
-                    <circle cx="12" cy="12" r="4" />
-                  </svg>
-                  {formatAddress(account)}
+                {/* Wallet Address with wallet type indicator */}
+                <span className="text-white mr-3 flex items-center">
+                  {getWalletIcon()}
+                  <span className="mr-1">{formatAddress(account)}</span>
+                  <span className="text-xs bg-black bg-opacity-20 px-1.5 py-0.5 rounded">
+                    {walletType === 'ethereum' ? 'ETH' : walletType === 'polkadot' ? 'DOT' : 'Wallet'}
+                  </span>
                 </span>
                 
                 {/* Disconnect Button */}
