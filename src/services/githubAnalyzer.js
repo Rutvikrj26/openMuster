@@ -133,12 +133,13 @@ export class GitHubProfileAnalyzer {
   }
 
   // Calculate overall score based on metrics
-  calculateScore(metrics) {
+  calculateScore(metrics, includesPrivateRepos) {
     // Define weights for different metrics
     const weights = {
       profileCompleteness: 0.1,
       followers: 0.15,
-      publicRepos: 0.15,
+      publicRepos: includesPrivateRepos ? 0.05 : 0.15, // Less weight if we have private repos
+      privateRepos: includesPrivateRepos ? 0.1 : 0,    // Only count if we have them
       totalStars: 0.2,
       languageDiversity: 0.1,
       hasPopularRepos: 0.1,
@@ -150,6 +151,7 @@ export class GitHubProfileAnalyzer {
       profileCompleteness: metrics.profileCompleteness, // Already 0-100
       followers: Math.min(metrics.followers, 1000) / 10, // Cap at 1000 followers (100 points)
       publicRepos: Math.min(metrics.publicRepos, 50) * 2, // Cap at 50 repos (100 points)
+      privateRepos: includesPrivateRepos ? Math.min(metrics.privateRepos, 50) * 2 : 0, // Cap at 50 repos
       totalStars: Math.min(metrics.totalStars, 1000) / 10, // Cap at 1000 stars (100 points)
       languageDiversity: Math.min(metrics.languageDiversity, 10) * 10, // Cap at 10 languages (100 points)
       hasPopularRepos: metrics.hasPopularRepos ? 100 : 0, // Boolean to 0 or 100
@@ -166,19 +168,23 @@ export class GitHubProfileAnalyzer {
   }
 
   // Analyze a GitHub profile
-  async analyze(username) {
+  async analyze(username, privateRepoData = null) {
     try {
       // Fetch all necessary data
       const userData = await this.fetchUserData(username);
       const repos = await this.fetchRepos(username);
       const contributionData = await this.fetchContributions(username);
       
-      // Calculate metrics
+      // Flag for whether we're including private repos
+      const includesPrivateRepos = privateRepoData !== null;
+      
+      // Prepare metrics object
       const metrics = {
         profileCompleteness: this.calculateProfileCompleteness(userData),
         followers: userData.followers || 0,
         following: userData.following || 0,
         publicRepos: userData.public_repos || 0,
+        privateRepos: 0, // Default to 0
         accountAge: this.calculateAccountAge(userData),
         totalStars: this.calculateTotalStars(repos),
         languageDiversity: this.calculateLanguageDiversity(repos),
@@ -186,8 +192,37 @@ export class GitHubProfileAnalyzer {
         recentActivity: this.calculateRecentActivity(contributionData)
       };
       
+      // Include private repository data if available
+      if (includesPrivateRepos && privateRepoData) {
+        metrics.privateRepos = privateRepoData.totalPrivateRepos || 0;
+        
+        // Add private stars to total stars (if available)
+        if (privateRepoData.totalPrivateStars) {
+          metrics.totalStars += privateRepoData.totalPrivateStars;
+        }
+        
+        // Update language diversity to include private repos
+        if (privateRepoData.languageStats) {
+          const languages = new Set();
+          
+          // Add languages from public repos
+          repos.forEach(repo => {
+            if (repo.language) {
+              languages.add(repo.language);
+            }
+          });
+          
+          // Add languages from private repos
+          Object.keys(privateRepoData.languageStats).forEach(lang => {
+            languages.add(lang);
+          });
+          
+          metrics.languageDiversity = languages.size;
+        }
+      }
+      
       // Calculate overall score
-      const overallScore = this.calculateScore(metrics);
+      const overallScore = this.calculateScore(metrics, includesPrivateRepos);
       
       // Return formatted analysis
       return {
@@ -196,7 +231,7 @@ export class GitHubProfileAnalyzer {
         metrics: {
           profileCompleteness: metrics.profileCompleteness,
           followers: metrics.followers,
-          repositories: metrics.publicRepos,
+          repositories: metrics.publicRepos + (includesPrivateRepos ? metrics.privateRepos : 0),
           stars: metrics.totalStars,
           languageDiversity: metrics.languageDiversity,
           hasPopularRepos: metrics.hasPopularRepos ? 'Yes' : 'No',
@@ -209,7 +244,8 @@ export class GitHubProfileAnalyzer {
           name: userData.name || 'Not provided',
           bio: userData.bio || 'Not provided',
           location: userData.location || 'Not provided'
-        }
+        },
+        includesPrivateRepos
       };
     } catch (error) {
       throw error;

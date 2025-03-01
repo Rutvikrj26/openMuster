@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { GitHubProfileAnalyzer } from '../services/githubAnalyzer';
 
-const UsernameInput = ({ account, contract, onRegister }) => {
+const UsernameInput = ({ account, contract, verified }) => {
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // NEW: State for whether to register wallet
-  const [registerWallet, setRegisterWallet] = useState(true);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -26,24 +24,7 @@ const UsernameInput = ({ account, contract, onRegister }) => {
       const existingProfile = await contract.getProfileScore(username);
       
       if (existingProfile.exists) {
-        // If profile exists but we want to register wallet
-        if (registerWallet) {
-          try {
-            // Register wallet with username
-            const tx = await contract.registerUserWallet(username);
-            await tx.wait();
-            
-            // Update the registered username in the parent component
-            if (onRegister) {
-              onRegister(username);
-            }
-          } catch (error) {
-            console.error("Error registering wallet:", error);
-            // Continue to profile even if registration fails
-          }
-        }
-        
-        // Navigate to results
+        // Navigate to results for existing profile
         navigate(`/results/${username}`);
         return;
       }
@@ -52,7 +33,7 @@ const UsernameInput = ({ account, contract, onRegister }) => {
       const analyzer = new GitHubProfileAnalyzer();
       const analysis = await analyzer.analyze(username);
       
-      // Store on blockchain
+      // Store on blockchain (without including private repos)
       const tx = await contract.addProfileScore(
         analysis.username,
         Math.round(analysis.overallScore),
@@ -63,16 +44,11 @@ const UsernameInput = ({ account, contract, onRegister }) => {
         analysis.metrics.languageDiversity,
         analysis.metrics.hasPopularRepos === 'Yes',
         analysis.metrics.recentActivity,
-        registerWallet // NEW: Pass the register wallet flag
+        false // Don't include private repos for manual username input
       );
       
       // Wait for transaction to be mined
       await tx.wait();
-      
-      // Update the registered username in the parent component if registering
-      if (registerWallet && onRegister) {
-        onRegister(username);
-      }
       
       // Navigate to results page
       navigate(`/results/${username}`);
@@ -88,6 +64,27 @@ const UsernameInput = ({ account, contract, onRegister }) => {
     <div className="max-w-xl mx-auto">
       <div className="bg-white p-8 rounded-lg shadow-lg">
         <h1 className="text-2xl font-bold text-gray-800 mb-6">Analyze GitHub Profile</h1>
+        
+        {/* Verification banner */}
+        {!verified && (
+          <div className="mb-6 bg-blue-50 border-l-4 border-blue-400 p-4">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-blue-700">
+                  You're analyzing public repositories only. 
+                  <Link to="/connect-github" className="font-medium text-blue-700 underline ml-1">
+                    Verify your GitHub account
+                  </Link> to include private data in your score.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         
         <form onSubmit={handleSubmit}>
           <div className="mb-6">
@@ -120,25 +117,6 @@ const UsernameInput = ({ account, contract, onRegister }) => {
                 disabled={loading}
               />
             </div>
-          </div>
-          
-          {/* NEW: Remember wallet checkbox */}
-          <div className="mb-6">
-            <div className="flex items-center">
-              <input
-                id="registerWallet"
-                type="checkbox"
-                checked={registerWallet}
-                onChange={(e) => setRegisterWallet(e.target.checked)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-              <label htmlFor="registerWallet" className="ml-2 block text-sm text-gray-700">
-                Remember this GitHub username for my wallet
-              </label>
-            </div>
-            <p className="mt-1 text-xs text-gray-500">
-              This will associate your GitHub username with your wallet address, so you won't need to re-enter it next time.
-            </p>
           </div>
           
           {error && (

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 
-const Navbar = ({ account, onDisconnect, username }) => {
+const Navbar = ({ account, onDisconnect, username, verified }) => {
   // Format address for display
   const formatAddress = (address) => {
     if (!address) return '';
@@ -30,21 +30,53 @@ const Navbar = ({ account, onDisconnect, username }) => {
             <span className="text-white font-bold text-xl">GitHub Profile Score</span>
           </Link>
           
+          {/* Navigation Links */}
+          <div className="hidden md:flex items-center space-x-6">
+            {account && (
+              <>
+                {verified && username ? (
+                  <Link 
+                    to={`/results/${username}`} 
+                    className="text-white hover:text-blue-100"
+                  >
+                    My Profile
+                  </Link>
+                ) : (
+                  <Link 
+                    to="/connect-github" 
+                    className="text-white hover:text-blue-100"
+                  >
+                    Connect GitHub
+                  </Link>
+                )}
+                <Link 
+                  to="/analyze" 
+                  className="text-white hover:text-blue-100"
+                >
+                  Analyze Profile
+                </Link>
+              </>
+            )}
+          </div>
+          
           {/* Wallet connection info */}
           <div className="flex items-center">
             {account ? (
               <div className="flex items-center">
-                {/* NEW: Display registered username if available */}
-                {username && (
+                {/* GitHub username if verified */}
+                {verified && username && (
                   <Link 
                     to={`/results/${username}`} 
-                    className="text-white mr-4 font-medium hover:text-blue-100 transition-colors"
+                    className="mr-4 flex items-center"
                   >
-                    <span className="text-yellow-300 mr-1">@</span>
-                    {username}
+                    <span className="bg-green-500 text-white text-xs px-2 py-0.5 rounded-full mr-2">Verified</span>
+                    <span className="text-white font-medium hover:text-blue-100 transition-colors">
+                      @{username}
+                    </span>
                   </Link>
                 )}
                 
+                {/* Wallet Address */}
                 <span className="text-white mr-3">
                   <svg 
                     className="h-4 w-4 text-green-300 inline mr-1" 
@@ -55,6 +87,8 @@ const Navbar = ({ account, onDisconnect, username }) => {
                   </svg>
                   {formatAddress(account)}
                 </span>
+                
+                {/* Disconnect Button */}
                 <button 
                   onClick={onDisconnect}
                   className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-medium py-1 px-3 rounded-md text-sm transition duration-300"

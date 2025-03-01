@@ -1,0 +1,31 @@
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant OAuth Server
+    participant GitHub
+    participant Smart Contract
+    
+    User->>Frontend: Connect Wallet
+    Frontend->>User: Request Signature
+    User->>Frontend: Sign Message
+    Frontend->>Frontend: Store Signature
+    
+    User->>Frontend: Click "Connect GitHub"
+    Frontend->>OAuth Server: Initiate OAuth (include wallet address)
+    OAuth Server->>GitHub: Redirect to GitHub OAuth
+    GitHub->>User: Request Authorization
+    User->>GitHub: Authorize Application
+    GitHub->>OAuth Server: Callback with Code
+    
+    OAuth Server->>GitHub: Exchange Code for Token
+    GitHub->>OAuth Server: Access Token
+    OAuth Server->>GitHub: Get User Profile
+    GitHub->>OAuth Server: GitHub Username + Data
+    
+    OAuth Server->>OAuth Server: Verify Wallet-GitHub Pair
+    OAuth Server->>Frontend: Return Verification Token
+    
+    Frontend->>Smart Contract: Store Verified Association
+    Smart Contract->>Frontend: Confirmation
+    
+    Frontend->>User: Display Success + Profile Access

@@ -4,8 +4,11 @@ import { ethers } from 'ethers';
 
 // Components
 import ConnectWallet from './components/ConnectWallet';
+import ConnectGitHub from './components/ConnectGitHub';
 import UsernameInput from './components/UsernameInput';
 import ProfileResults from './components/ProfileResults';
+import VerificationSuccess from './components/VerificationSuccess';
+import VerificationFailed from './components/VerificationFailed';
 import Navbar from './components/Navbar';
 
 // Contract ABI
@@ -19,9 +22,12 @@ function App() {
   const [contract, setContract] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // NEW: State for registered username
-  const [registeredUsername, setRegisteredUsername] = useState(null);
-  const [checkingUsername, setCheckingUsername] = useState(false);
+  // State for GitHub verification
+  const [verifiedUsername, setVerifiedUsername] = useState(null);
+  const [verificationStatus, setVerificationStatus] = useState({
+    verified: false,
+    checking: true
+  });
   
   // Contract config
   const contractAddress = process.env.REACT_APP_CONTRACT_ADDRESS;
@@ -53,12 +59,13 @@ function App() {
               );
               setContract(contract);
               
-              // NEW: Check if this wallet has a registered username
-              await checkRegisteredUsername(contract, accounts[0]);
+              // Check GitHub verification status
+              await checkGitHubVerification(contract, accounts[0]);
             }
           }
         } catch (error) {
           console.error("Failed to connect to wallet:", error);
+          setVerificationStatus({ verified: false, checking: false });
         }
       }
       
@@ -68,25 +75,24 @@ function App() {
     init();
   }, [contractAddress]);
   
-  // NEW: Function to check if wallet has a registered username
-  const checkRegisteredUsername = async (contract, address) => {
+  // Function to check GitHub verification status
+  const checkGitHubVerification = async (contract, address) => {
     try {
-      setCheckingUsername(true);
+      setVerificationStatus({ ...verificationStatus, checking: true });
       
-      // Call the contract to check for registered username
-      const hasUsername = await contract.hasRegisteredUsername(address);
+      // Call contract to get GitHub username and verification status
+      const [username, verified, timestamp] = await contract.getWalletGitHubInfo(address);
       
-      if (hasUsername) {
-        const username = await contract.getWalletUsername(address);
-        setRegisteredUsername(username);
+      if (verified && username) {
+        setVerifiedUsername(username);
+        setVerificationStatus({ verified: true, checking: false });
       } else {
-        setRegisteredUsername(null);
+        setVerifiedUsername(null);
+        setVerificationStatus({ verified: false, checking: false });
       }
     } catch (error) {
-      console.error("Error checking registered username:", error);
-      setRegisteredUsername(null);
-    } finally {
-      setCheckingUsername(false);
+      console.error("Error checking GitHub verification:", error);
+      setVerificationStatus({ verified: false, checking: false });
     }
   };
   
@@ -117,11 +123,12 @@ function App() {
           );
           setContract(contract);
           
-          // NEW: Check if this wallet has a registered username
-          await checkRegisteredUsername(contract, accounts[0]);
+          // Check GitHub verification status
+          await checkGitHubVerification(contract, accounts[0]);
         }
       } catch (error) {
         console.error("Failed to connect to wallet:", error);
+        setVerificationStatus({ verified: false, checking: false });
       } finally {
         setLoading(false);
       }
@@ -135,12 +142,14 @@ function App() {
     setAccount(null);
     setSigner(null);
     setContract(null);
-    setRegisteredUsername(null);
+    setVerifiedUsername(null);
+    setVerificationStatus({ verified: false, checking: false });
   };
   
-  // NEW: Function to update registered username
-  const updateRegisteredUsername = (username) => {
-    setRegisteredUsername(username);
+  // Function to handle successful GitHub verification
+  const handleVerificationSuccess = (username) => {
+    setVerifiedUsername(username);
+    setVerificationStatus({ verified: true, checking: false });
   };
   
   // Listen for account changes
@@ -161,8 +170,8 @@ function App() {
             );
             setContract(contract);
             
-            // NEW: Check if this wallet has a registered username
-            await checkRegisteredUsername(contract, accounts[0]);
+            // Check GitHub verification status for the new account
+            await checkGitHubVerification(contract, accounts[0]);
           }
         } else {
           // User disconnected all accounts
@@ -185,20 +194,7 @@ function App() {
     };
   }, [contractAddress, provider]);
   
-  // App context values to pass to components
-  const appContextValue = {
-    account,
-    provider,
-    signer,
-    contract,
-    loading,
-    connectWallet,
-    disconnectWallet,
-    registeredUsername,
-    updateRegisteredUsername
-  };
-  
-  if (loading || checkingUsername) {
+  if (loading || verificationStatus.checking) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
         <div className="text-center">
@@ -215,26 +211,48 @@ function App() {
         <Navbar 
           account={account} 
           onDisconnect={disconnectWallet}
-          username={registeredUsername} 
+          username={verifiedUsername}
+          verified={verificationStatus.verified}
         />
         
         <main className="container mx-auto px-4 py-8">
           <Routes>
+            {/* Home route - redirects based on connection status */}
             <Route 
               path="/" 
               element={
                 account ? (
-                  registeredUsername ? (
-                    <Navigate to={`/results/${registeredUsername}`} replace />
+                  // If wallet is connected and GitHub is verified, go to profile
+                  verificationStatus.verified ? (
+                    <Navigate to={`/results/${verifiedUsername}`} replace />
                   ) : (
-                    <Navigate to="/analyze" replace />
+                    // If wallet is connected but GitHub not verified, go to GitHub connect
+                    <Navigate to="/connect-github" replace />
                   )
                 ) : (
+                  // If wallet not connected, show connect wallet page
                   <ConnectWallet onConnect={connectWallet} />
                 )
               } 
             />
             
+            {/* GitHub connection route */}
+            <Route 
+              path="/connect-github" 
+              element={
+                account ? (
+                  <ConnectGitHub 
+                    account={account} 
+                    contract={contract}
+                    onVerificationSuccess={handleVerificationSuccess}
+                  />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              } 
+            />
+            
+            {/* Manual username input (for public data only) */}
             <Route 
               path="/analyze" 
               element={
@@ -242,7 +260,38 @@ function App() {
                   <UsernameInput 
                     account={account} 
                     contract={contract}
-                    onRegister={updateRegisteredUsername}
+                    verified={verificationStatus.verified}
+                  />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              } 
+            />
+            
+            {/* Profile results page */}
+            <Route 
+              path="/results/:username" 
+              element={
+                account ? (
+                  <ProfileResults 
+                    account={account} 
+                    contract={contract}
+                    isVerified={verificationStatus.verified}
+                    verifiedUsername={verifiedUsername}
+                  />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              } 
+            />
+            
+            {/* GitHub OAuth callback routes */}
+            <Route 
+              path="/verification-success" 
+              element={
+                account ? (
+                  <VerificationSuccess 
+                    onVerificationComplete={handleVerificationSuccess}
                   />
                 ) : (
                   <Navigate to="/" replace />
@@ -251,14 +300,10 @@ function App() {
             />
             
             <Route 
-              path="/results/:username" 
+              path="/verification-failed" 
               element={
                 account ? (
-                  <ProfileResults 
-                    account={account} 
-                    contract={contract}
-                    isRegistered={Boolean(registeredUsername)}
-                  />
+                  <VerificationFailed />
                 ) : (
                   <Navigate to="/" replace />
                 )

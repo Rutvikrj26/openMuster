@@ -1,16 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ethers } from 'ethers';
+import axios from 'axios';
 import { GitHubProfileAnalyzer } from '../services/githubAnalyzer';
 
-const ProfileResults = ({ account, contract, isRegistered }) => {
+const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => {
   const { username } = useParams();
   const [profileData, setProfileData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
-  // NEW: State for recalculation
   const [recalculating, setRecalculating] = useState(false);
+  const [githubToken, setGithubToken] = useState(null);
+  
+  // New state for OAuth token
+  const [showTokenInput, setShowTokenInput] = useState(false);
+  
+  // Check if this is the verified user's own profile
+  const isOwnVerifiedProfile = isVerified && verifiedUsername === username;
+  
+  const OAUTH_SERVER_URL = process.env.REACT_APP_OAUTH_SERVER_URL || 'http://localhost:3001';
 
   useEffect(() => {
     const fetchProfileData = async () => {
@@ -43,7 +51,8 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
             hasPopularRepos: data.hasPopularRepos ? 'Yes' : 'No',
             recentActivity: data.recentActivity
           },
-          analyzedBy: data.analyzedBy
+          analyzedBy: data.analyzedBy,
+          includesPrivateRepos: data.includesPrivateRepos
         };
         
         setProfileData(formattedData);
@@ -58,19 +67,35 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
     fetchProfileData();
   }, [contract, username]);
 
-  // NEW: Function to recalculate profile score
-  const handleRecalculate = async () => {
+  // Function to recalculate profile score
+  const handleRecalculate = async (includePrivateRepos = false) => {
     if (!contract || !username) return;
     
     try {
       setRecalculating(true);
       setError('');
       
+      // If including private repos, we need to fetch them through the OAuth server
+      let privateRepoData = null;
+      if (includePrivateRepos && githubToken) {
+        try {
+          const response = await axios.get(
+            `${OAUTH_SERVER_URL}/api/github/repos/${username}?token=${githubToken}`
+          );
+          privateRepoData = response.data;
+        } catch (error) {
+          console.error('Error fetching private repo data:', error);
+          setError('Failed to fetch private repository data. Please check your token.');
+          setRecalculating(false);
+          return;
+        }
+      }
+      
       // Analyze GitHub profile
       const analyzer = new GitHubProfileAnalyzer();
-      const analysis = await analyzer.analyze(username);
+      const analysis = await analyzer.analyze(username, privateRepoData);
       
-      // Store on blockchain - don't register wallet again
+      // Store on blockchain
       const tx = await contract.addProfileScore(
         analysis.username,
         Math.round(analysis.overallScore),
@@ -81,7 +106,7 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
         analysis.metrics.languageDiversity,
         analysis.metrics.hasPopularRepos === 'Yes',
         analysis.metrics.recentActivity,
-        false // Don't register wallet again
+        includePrivateRepos
       );
       
       // Wait for transaction to be mined
@@ -101,10 +126,17 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
           hasPopularRepos: analysis.metrics.hasPopularRepos,
           recentActivity: analysis.metrics.recentActivity
         },
-        analyzedBy: account
+        analyzedBy: account,
+        includesPrivateRepos
       };
       
       setProfileData(updatedData);
+      
+      // Clear token after successful analysis
+      if (includePrivateRepos) {
+        setGithubToken(null);
+        setShowTokenInput(false);
+      }
       
     } catch (error) {
       console.error('Error recalculating profile:', error);
@@ -195,7 +227,14 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
                 />
               </div>
               <div className="ml-4 text-white">
-                <h1 className="text-2xl font-bold">{username}</h1>
+                <div className="flex items-center">
+                  <h1 className="text-2xl font-bold">{username}</h1>
+                  {profileData.includesPrivateRepos && (
+                    <span className="ml-2 bg-blue-900 text-blue-100 text-xs px-2 py-0.5 rounded-full">
+                      Includes Private Data
+                    </span>
+                  )}
+                </div>
                 <a 
                   href={`https://github.com/${username}`} 
                   target="_blank" 
@@ -221,13 +260,14 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
             </div>
           </div>
           
-          {/* NEW: Recalculate button for registered users */}
-          {isRegistered && (
-            <div className="mt-4 flex justify-end">
+          {/* Recalculate buttons for verified users */}
+          {isOwnVerifiedProfile && (
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              {/* Button to recalculate with public data only */}
               <button
-                onClick={handleRecalculate}
+                onClick={() => handleRecalculate(false)}
                 disabled={recalculating}
-                className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-blue-700 bg-white hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                className={`inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md shadow-sm text-blue-700 bg-white hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
                   recalculating ? 'opacity-75 cursor-not-allowed' : ''
                 }`}
               >
@@ -270,10 +310,60 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
                         d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
                       />
                     </svg>
-                    Recalculate Score
+                    Update Public Data
                   </>
                 )}
               </button>
+              
+              {/* Button to show/hide private data token input */}
+              <button
+                onClick={() => setShowTokenInput(!showTokenInput)}
+                disabled={recalculating}
+                className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md shadow-sm text-indigo-900 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <svg 
+                  className="mr-2 h-4 w-4" 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" 
+                  />
+                </svg>
+                Include Private Repos
+              </button>
+            </div>
+          )}
+          
+          {/* Token input for private repo access */}
+          {showTokenInput && (
+            <div className="mt-3 bg-white bg-opacity-10 rounded-md p-3">
+              <label className="block text-sm font-medium text-white mb-1">
+                GitHub Personal Access Token
+              </label>
+              <div className="flex">
+                <input
+                  type="password"
+                  value={githubToken || ''}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder="Enter your GitHub token with repo scope"
+                  className="flex-grow min-w-0 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+                <button
+                  onClick={() => handleRecalculate(true)}
+                  disabled={!githubToken || recalculating}
+                  className="ml-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Analyze All Repos
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-blue-100">
+                Your token is used only for this analysis and never stored. Create a token with 'repo' scope at GitHub Developer Settings.
+              </p>
             </div>
           )}
         </div>
@@ -314,7 +404,7 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
                   {profileData.metrics.repositories}
                 </span>
                 <span className="ml-2 text-sm text-gray-500">
-                  Public repos
+                  {profileData.includesPrivateRepos ? 'All repos' : 'Public repos'}
                 </span>
               </div>
             </div>
@@ -395,17 +485,56 @@ const ProfileResults = ({ account, contract, isRegistered }) => {
                 </a>
               </p>
             </div>
+            
+            <div>
+              <span className="font-medium text-gray-500">Data Privacy:</span>
+              <p className="mt-1 text-gray-900">
+                {profileData.includesPrivateRepos ? (
+                  <span className="text-green-600 font-medium">Includes private repositories</span>
+                ) : (
+                  <span className="text-gray-500">Public repositories only</span>
+                )}
+              </p>
+            </div>
+            
+            <div>
+              <span className="font-medium text-gray-500">Verification Status:</span>
+              <p className="mt-1">
+                {isOwnVerifiedProfile ? (
+                  <span className="text-green-600 font-medium flex items-center">
+                    <svg className="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    Verified profile owner
+                  </span>
+                ) : (
+                  <span className="text-gray-500">Not verified</span>
+                )}
+              </p>
+            </div>
           </div>
         </div>
       </div>
       
-      <div className="mt-6 flex justify-center">
+      <div className="mt-6 flex justify-center space-x-4">
         <Link 
           to="/analyze" 
           className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200"
         >
           Analyze Another Profile
         </Link>
+        
+        {!isVerified && (
+          <Link 
+            to="/connect-github" 
+            className="inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+          >
+            <svg className="mr-2 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 0C4.477 0 0 4.477 0 10c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V19c0 .27.16.59.67.5C17.14 18.16 20 14.42 20 10A10 10 0 0010 0z" clipRule="evenodd" />
+            </svg>
+            Verify Your GitHub
+          </Link>
+        )}
       </div>
     </div>
   );

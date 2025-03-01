@@ -2,11 +2,12 @@
 pragma solidity ^0.8.19;
 
 /**
- * @title GitHubProfileScore
- * @dev Store and retrieve GitHub profile analysis scores on-chain
+ * @title GitHubProfileScoreOAuth
+ * @dev Store and retrieve GitHub profile analysis scores with OAuth verification
  */
-contract GitHubProfileScore {
+contract GitHubProfileScoreOAuth {
     address public owner;
+    address public verifierServer;
     
     // Struct to store GitHub profile scores and essential metadata
     struct ProfileData {
@@ -22,6 +23,15 @@ contract GitHubProfileScore {
         uint8 recentActivity;
         address analyzedBy;
         bool exists;
+        bool includesPrivateRepos;
+    }
+    
+    // Struct to store wallet-GitHub username association
+    struct WalletGitHubAssociation {
+        string username;
+        bool verified;
+        uint256 verificationTimestamp;
+        bytes32 verificationHash;
     }
     
     // Mapping from GitHub username (hashed) to profile data
@@ -30,21 +40,41 @@ contract GitHubProfileScore {
     // Array to store all analyzed usernames for enumeration
     bytes32[] public analyzedProfiles;
     
-    // NEW: Mapping from wallet address to GitHub username
-    mapping(address => string) public userWallets;
+    // Mapping from wallet address to GitHub username association
+    mapping(address => WalletGitHubAssociation) public userWallets;
     
-    // NEW: Array to store all registered wallet addresses
+    // Array to store all registered wallet addresses
     address[] public registeredWallets;
     
     // Events
-    event ProfileScoreAdded(string username, uint8 score, address analyzedBy);
+    event ProfileScoreAdded(string username, uint8 score, address analyzedBy, bool includesPrivateRepos);
     event ProfileScoreUpdated(string username, uint8 oldScore, uint8 newScore);
-    
-    // NEW: Event for wallet registration
-    event WalletRegistered(address wallet, string username);
+    event WalletRegistered(address wallet, string username, bool verified);
+    event VerifierServerChanged(address oldServer, address newServer);
     
     constructor() {
         owner = msg.sender;
+        verifierServer = msg.sender; // Initially set to owner, can be changed
+    }
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
+    
+    modifier onlyVerifier() {
+        require(msg.sender == verifierServer, "Only authorized verifier can call this function");
+        _;
+    }
+    
+    /**
+     * @dev Set the address of the verifier server
+     * @param _verifierServer Address allowed to verify GitHub associations
+     */
+    function setVerifierServer(address _verifierServer) external onlyOwner {
+        address oldServer = verifierServer;
+        verifierServer = _verifierServer;
+        emit VerifierServerChanged(oldServer, _verifierServer);
     }
     
     /**
@@ -58,7 +88,7 @@ contract GitHubProfileScore {
      * @param languageDiversity Number of languages used (max 255)
      * @param hasPopularRepos Whether user has popular repos
      * @param recentActivity Recent activity score 0-100
-     * @param registerWallet Whether to register this wallet with the username
+     * @param includesPrivateRepos Whether the analysis includes private repositories
      */
     function addProfileScore(
         string memory username,
@@ -70,8 +100,17 @@ contract GitHubProfileScore {
         uint8 languageDiversity,
         bool hasPopularRepos,
         uint8 recentActivity,
-        bool registerWallet
+        bool includesPrivateRepos
     ) public {
+        // If including private repos, the association must be verified
+        if (includesPrivateRepos) {
+            require(
+                userWallets[msg.sender].verified && 
+                keccak256(abi.encodePacked(userWallets[msg.sender].username)) == keccak256(abi.encodePacked(username)),
+                "To include private repos, wallet must be verified for this GitHub account"
+            );
+        }
+        
         bytes32 usernameHash = keccak256(abi.encodePacked(username));
         
         ProfileData storage profile = profileScores[usernameHash];
@@ -82,7 +121,7 @@ contract GitHubProfileScore {
             profile.exists = true;
             analyzedProfiles.push(usernameHash);
             
-            emit ProfileScoreAdded(username, overallScore, msg.sender);
+            emit ProfileScoreAdded(username, overallScore, msg.sender, includesPrivateRepos);
         } else {
             // Update existing profile
             emit ProfileScoreUpdated(username, profile.overallScore, overallScore);
@@ -99,48 +138,100 @@ contract GitHubProfileScore {
         profile.hasPopularRepos = hasPopularRepos;
         profile.recentActivity = recentActivity;
         profile.analyzedBy = msg.sender;
-        
-        // Register wallet if requested
-        if (registerWallet) {
-            registerUserWallet(username);
-        }
+        profile.includesPrivateRepos = includesPrivateRepos;
     }
     
     /**
-     * @dev Register a wallet address with a GitHub username
+     * @dev Register a wallet-GitHub association (unverified)
      * @param username GitHub username to associate with the sender's wallet
      */
     function registerUserWallet(string memory username) public {
         // Check if this wallet is already registered
-        bytes memory currentUsername = bytes(userWallets[msg.sender]);
+        WalletGitHubAssociation storage association = userWallets[msg.sender];
         
-        if (currentUsername.length == 0) {
+        if (bytes(association.username).length == 0) {
             // New wallet registration
             registeredWallets.push(msg.sender);
         }
         
-        // Update the username for this wallet
-        userWallets[msg.sender] = username;
+        // Update the username for this wallet (but preserve verification if username is the same)
+        bool wasVerified = association.verified;
+        bool sameUsername = keccak256(abi.encodePacked(association.username)) == keccak256(abi.encodePacked(username));
         
-        emit WalletRegistered(msg.sender, username);
+        // If changing username, lose verification status
+        if (!sameUsername) {
+            association.verified = false;
+            association.verificationTimestamp = 0;
+            association.verificationHash = bytes32(0);
+        }
+        
+        association.username = username;
+        
+        emit WalletRegistered(msg.sender, username, association.verified);
+    }
+    
+    /**
+     * @dev Verify a wallet-GitHub association (only callable by verifier server)
+     * @param wallet Wallet address to verify
+     * @param username GitHub username to verify
+     * @param verificationHash Hash of verification data
+     */
+    function verifyUserWallet(address wallet, string memory username, bytes32 verificationHash) public onlyVerifier {
+        WalletGitHubAssociation storage association = userWallets[wallet];
+        
+        // Update or create association
+        if (bytes(association.username).length == 0) {
+            registeredWallets.push(wallet);
+        }
+        
+        association.username = username;
+        association.verified = true;
+        association.verificationTimestamp = block.timestamp;
+        association.verificationHash = verificationHash;
+        
+        emit WalletRegistered(wallet, username, true);
+    }
+    
+    /**
+     * @dev Revoke verification status of a wallet (only callable by verifier server)
+     * @param wallet Wallet address to revoke verification for
+     */
+    function revokeVerification(address wallet) public onlyVerifier {
+        WalletGitHubAssociation storage association = userWallets[wallet];
+        
+        // Only update if the wallet has a username
+        if (bytes(association.username).length > 0) {
+            association.verified = false;
+            
+            emit WalletRegistered(wallet, association.username, false);
+        }
     }
     
     /**
      * @dev Get the GitHub username associated with a wallet
      * @param wallet Wallet address to look up
-     * @return GitHub username associated with the wallet, or empty string if none
+     * @return GitHub username and verification status
      */
-    function getWalletUsername(address wallet) public view returns (string memory) {
-        return userWallets[wallet];
+    function getWalletGitHubInfo(address wallet) public view returns (
+        string memory username, 
+        bool verified, 
+        uint256 verificationTimestamp
+    ) {
+        WalletGitHubAssociation storage association = userWallets[wallet];
+        return (
+            association.username, 
+            association.verified, 
+            association.verificationTimestamp
+        );
     }
     
     /**
-     * @dev Check if a wallet has a registered GitHub username
+     * @dev Check if a wallet has a verified GitHub username
      * @param wallet Wallet address to check
-     * @return bool Whether the wallet has a registered username
+     * @return bool Whether the wallet has a verified username
      */
-    function hasRegisteredUsername(address wallet) public view returns (bool) {
-        return bytes(userWallets[wallet]).length > 0;
+    function hasVerifiedUsername(address wallet) public view returns (bool) {
+        return userWallets[wallet].verified;
     }
     
     /**
