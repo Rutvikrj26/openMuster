@@ -320,6 +320,12 @@ module.exports = function (webpackEnv) {
         }),
         ...(modules.webpackAliases || {}),
       },
+      fallback: {
+        "path": false,
+        "fs": false,
+        "os": false,
+        "crypto": false,
+      },
       plugins: [
         // Prevents users from importing files from outside of src/ (or node_modules/).
         // This often causes confusion because we only process files within src/ with babel.

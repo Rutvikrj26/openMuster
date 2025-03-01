@@ -15,6 +15,7 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
   const [githubToken, setGithubToken] = useState(null);
   const [zkProofs, setZkProofs] = useState([]);
   const [showZkProofSection, setShowZkProofSection] = useState(false);
+  const [privateRepoData, setPrivateRepoData] = useState(null);
 
   // New state for OAuth token
   const [showTokenInput, setShowTokenInput] = useState(false);
@@ -24,53 +25,55 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
   
   const OAUTH_SERVER_URL = process.env.REACT_APP_OAUTH_SERVER_URL || 'http://localhost:3001';
 
-  useEffect(() => {
-    const fetchProfileData = async () => {
-      if (!contract || !username) return;
-      
-      try {
-        setLoading(true);
-        setError('');
-        
-        // Get profile data from blockchain
-        const data = await contract.getProfileScore(username);
-        
-        if (!data.exists) {
-          setError(`No data found for GitHub user ${username}`);
-          setLoading(false);
-          return;
-        }
-        
-        // Format the data
-        const formattedData = {
-          username: data.username,
-          analyzedAt: new Date(data.timestamp.toNumber() * 1000).toISOString(),
-          overallScore: data.overallScore,
-          metrics: {
-            profileCompleteness: data.profileCompleteness,
-            followers: data.followers,
-            repositories: data.repoCount,
-            stars: data.totalStars,
-            languageDiversity: data.languageDiversity,
-            hasPopularRepos: data.hasPopularRepos ? 'Yes' : 'No',
-            recentActivity: data.recentActivity
-          },
-          analyzedBy: data.analyzedBy,
-          includesPrivateRepos: data.includesPrivateRepos
-        };
-        
-        setProfileData(formattedData);
-      } catch (error) {
-        console.error('Error fetching profile data:', error);
-        setError(`Error fetching data: ${error.message}`);
-      } finally {
-        setLoading(false);
-      }
-    };
+
+  const fetchProfileData = async () => {
+    if (!contract || !username) return;
     
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Get profile data from blockchain
+      const data = await contract.getProfileScore(username);
+      
+      if (!data.exists) {
+        setError(`No data found for GitHub user ${username}`);
+        setLoading(false);
+        return;
+      }
+      
+      // Format the data
+      const formattedData = {
+        username: data.username,
+        analyzedAt: new Date(data.timestamp.toNumber() * 1000).toISOString(),
+        overallScore: data.overallScore,
+        metrics: {
+          profileCompleteness: data.profileCompleteness,
+          followers: data.followers,
+          repositories: data.repoCount,
+          stars: data.totalStars,
+          languageDiversity: data.languageDiversity,
+          hasPopularRepos: data.hasPopularRepos ? 'Yes' : 'No',
+          recentActivity: data.recentActivity
+        },
+        analyzedBy: data.analyzedBy,
+        includesPrivateRepos: data.includesPrivateRepos
+      };
+      
+      setProfileData(formattedData);
+    } catch (error) {
+      console.error('Error fetching profile data:', error);
+      setError(`Error fetching data: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchProfileData();
   }, [contract, username]);
 
+  
   useEffect(() => {
     const checkZkProofs = async () => {
       if (!contract || !username || !profileData) return;
@@ -135,6 +138,7 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
             `${OAUTH_SERVER_URL}/api/github/repos/${username}?token=${githubToken}`
           );
           privateRepoData = response.data;
+          setPrivateRepoData(privateRepoData);
         } catch (error) {
           console.error('Error fetching private repo data:', error);
           setError('Failed to fetch private repository data. Please check your token.');
@@ -179,7 +183,7 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
           recentActivity: analysis.metrics.recentActivity
         },
         analyzedBy: account,
-        includesPrivateRepos
+        includesPrivateRepos: includePrivateRepos
       };
       
       setProfileData(updatedData);
