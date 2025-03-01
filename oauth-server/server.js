@@ -9,20 +9,25 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors({ origin: process.env.FRONTEND_URL }));
+app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000' }));
 app.use(express.json());
 
 // GitHub OAuth credentials
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
-const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI;
+const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || 'http://localhost:3001/api/auth/github/callback';
 
-// Blockchain connection
-const provider = new ethers.providers.JsonRpcProvider(process.env.RPC_URL);
-const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+// Blockchain connection (for blockchain verification)
+const provider = new ethers.providers.JsonRpcProvider(process.env.RPC_URL || 'https://sepolia.base.org');
 const contractABI = require('./contractABI.json');
 const contractAddress = process.env.CONTRACT_ADDRESS;
-const contract = new ethers.Contract(contractAddress, contractABI, wallet);
+
+// Only setup wallet and contract if private key is provided
+let wallet, contract;
+if (process.env.PRIVATE_KEY) {
+  wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+  contract = new ethers.Contract(contractAddress, contractABI, wallet);
+}
 
 // In-memory storage (replace with database in production)
 const pendingVerifications = new Map();
@@ -101,29 +106,34 @@ app.get('/api/auth/github/callback', async (req, res) => {
     );
     
     // Record the verified association on the blockchain
-    try {
-      const tx = await contract.verifyUserWallet(
-        walletAddress,
-        githubUsername,
-        verificationHash
-      );
-      
-      await tx.wait();
-      
-      console.log(`Verified wallet ${walletAddress} with GitHub username ${githubUsername}`);
-      
-      // Clean up
-      pendingVerifications.delete(state);
-      
-      // Redirect back to frontend with success
-      res.redirect(`${process.env.FRONTEND_URL}/verification-success?username=${githubUsername}`);
-    } catch (error) {
-      console.error('Blockchain verification failed:', error);
-      res.redirect(`${process.env.FRONTEND_URL}/verification-failed?error=blockchain`);
+    if (wallet && contract) {
+      try {
+        const tx = await contract.verifyUserWallet(
+          walletAddress,
+          githubUsername,
+          verificationHash
+        );
+        
+        await tx.wait();
+        
+        console.log(`Verified wallet ${walletAddress} with GitHub username ${githubUsername}`);
+      } catch (error) {
+        console.error('Blockchain verification failed:', error);
+        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verification-failed?error=blockchain`);
+      }
+    } else {
+      console.log(`[DEV MODE] Would verify wallet ${walletAddress} with GitHub username ${githubUsername}`);
     }
+    
+    // Clean up
+    pendingVerifications.delete(state);
+    
+    // Redirect back to frontend with success and token
+    // In production, you should not pass the token in the URL - this is for demo purposes
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verification-success?username=${githubUsername}&token=${access_token}`);
   } catch (error) {
     console.error('GitHub OAuth error:', error);
-    res.redirect(`${process.env.FRONTEND_URL}/verification-failed?error=github`);
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/verification-failed?error=github`);
   }
 });
 
@@ -136,14 +146,24 @@ app.get('/api/verify/status/:wallet', async (req, res) => {
   }
   
   try {
-    const [username, verified, timestamp] = await contract.getWalletGitHubInfo(wallet);
-    
-    res.json({
-      username,
-      verified,
-      verificationTimestamp: timestamp.toString(),
-      walletAddress: wallet
-    });
+    if (contract) {
+      const [username, verified, timestamp] = await contract.getWalletGitHubInfo(wallet);
+      
+      res.json({
+        username,
+        verified,
+        verificationTimestamp: timestamp.toString(),
+        walletAddress: wallet
+      });
+    } else {
+      // In development mode without contract
+      res.json({
+        username: "",
+        verified: false,
+        verificationTimestamp: "0",
+        walletAddress: wallet
+      });
+    }
   } catch (error) {
     console.error('Error checking verification status:', error);
     res.status(500).json({ error: 'Failed to check verification status' });
@@ -190,6 +210,9 @@ app.get('/api/github/repos/:username', async (req, res) => {
       .filter(repo => repo.private)
       .reduce((sum, repo) => sum + repo.stars, 0);
     
+    // Get repository IDs for proof verification
+    const repositoryIds = repos.map(repo => repo.id.toString());
+    
     // Return anonymized stats
     res.json({
       username,
@@ -197,11 +220,42 @@ app.get('/api/github/repos/:username', async (req, res) => {
       totalPrivateRepos,
       totalPublicRepos,
       totalPrivateStars,
-      languageStats: getLanguageStats(repos)
+      languageStats: getLanguageStats(repos),
+      repositoryIds,
+      repoDetails: repos,
+      accessToken: token  // Only sending back for demo
     });
   } catch (error) {
     console.error('Error fetching GitHub data:', error);
     res.status(500).json({ error: 'Failed to fetch GitHub data' });
+  }
+});
+
+// Helper endpoint for ZK proof verification (proxies zkVerify API but keeps sensitive keys on server)
+app.post('/api/zkverify/submit', async (req, res) => {
+  const { proofType, proofData } = req.body;
+  
+  if (!proofType || !proofData) {
+    return res.status(400).json({ error: 'Missing proof type or data' });
+  }
+  
+  try {
+    // In a real application, you would call the zkVerify API here
+    // This is a placeholder to demonstrate the endpoint structure
+    console.log(`Would submit ${proofType} proof to zkVerify`);
+    
+    // Simulate successful verification
+    setTimeout(() => {
+      res.json({
+        success: true,
+        verificationId: `zkv-${Date.now()}`,
+        txHash: `0x${crypto.randomBytes(32).toString('hex')}`,
+        timestamp: Date.now()
+      });
+    }, 1000); // Simulate network delay
+  } catch (error) {
+    console.error('Error submitting proof to zkVerify:', error);
+    res.status(500).json({ error: 'Failed to submit proof' });
   }
 });
 
@@ -221,4 +275,13 @@ function getLanguageStats(repos) {
 // Start the server
 app.listen(PORT, () => {
   console.log(`OAuth server running on port ${PORT}`);
+  console.log(`GitHub callback URL: ${GITHUB_REDIRECT_URI}`);
+  
+  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+    console.warn('⚠️ GitHub OAuth credentials not set. Authentication will not work correctly.');
+  }
+  
+  if (!process.env.PRIVATE_KEY || !contractAddress) {
+    console.warn('⚠️ Blockchain verification is in development mode. Changes will not be saved on-chain.');
+  }
 });

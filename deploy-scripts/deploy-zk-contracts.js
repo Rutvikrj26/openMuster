@@ -60,7 +60,7 @@ async function main() {
   // Save the contract addresses to a file for frontend use
   const fs = require("fs");
   fs.writeFileSync(
-    "./.env.local",
+    "./.env",
     `REACT_APP_ZK_CONTRACT_ADDRESS=${profileScore.address}\n` +
     `REACT_APP_ZK_BRIDGE_ADDRESS=${bridge.address}\n`,
     { flag: "a" }

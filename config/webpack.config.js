@@ -321,10 +321,16 @@ module.exports = function (webpackEnv) {
         ...(modules.webpackAliases || {}),
       },
       fallback: {
-        "path": false,
-        "fs": false,
-        "os": false,
-        "crypto": false,
+        "process": require.resolve("process/browser"),
+        "stream": require.resolve("stream-browserify"),
+        "util": require.resolve("util"),
+        "buffer": require.resolve("buffer"),
+        "crypto": require.resolve("crypto-browserify"),
+        "http": require.resolve("stream-http"),
+        "https": require.resolve("https-browserify"),
+        "os": require.resolve("os-browserify/browser"),
+        "path": require.resolve("path-browserify"),
+        "zlib": require.resolve("browserify-zlib"),
       },
       plugins: [
         // Prevents users from importing files from outside of src/ (or node_modules/).

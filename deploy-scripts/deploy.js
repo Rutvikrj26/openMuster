@@ -4,7 +4,7 @@ async function main() {
   console.log("Deploying GitHubProfileScore contract...");
 
   // Get the contract factory
-  const GitHubProfileScore = await hre.ethers.getContractFactory("GitHubProfileScore");
+  const GitHubProfileScore = await hre.ethers.getContractFactory("GitHubProfileScoreOAuth");
   
   // Deploy the contract
   const profileScore = await GitHubProfileScore.deploy();
@@ -37,7 +37,7 @@ async function main() {
   // Save the contract address to a file for frontend use
   const fs = require("fs");
   fs.writeFileSync(
-    "./.env.local",
+    "./.env",
     `REACT_APP_CONTRACT_ADDRESS=${profileScore.address}\n`,
     { flag: "a" }
   );

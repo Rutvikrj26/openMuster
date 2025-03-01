@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import zkProvider from '../services/zkProvider';
-import { ProofManager } from '../services/zkProofManager.ts';
+import zkBrowserProvider from '../services/zkBrowserProvider';
+import { ProofManager } from '../services/zkProofManager';
 
-  const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofGenerated }) => {
-    const [state, setState] = useState({
-      status: 'idle', // idle, generating, verifying, success, error
-      error: null,
-      proofs: [],
-      verificationResult: null
-    });
+const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofGenerated }) => {
+  const [state, setState] = useState({
+    status: 'idle', // idle, generating, verifying, success, error
+    error: null,
+    proofs: [],
+    verificationResult: null
+  });
 
   const proofManager = new ProofManager();
 
@@ -71,7 +71,7 @@ import { ProofManager } from '../services/zkProofManager.ts';
       setState(prev => ({ ...prev, status: 'generating', error: null }));
 
       // Generate code metrics proof (RiscZero)
-      const codeMetricsProof = await zkProvider.generateCodeMetricsProof({
+      const codeMetricsProof = await zkBrowserProvider.generateCodeMetricsProof({
         totalRepos: privateRepoData.totalRepos,
         totalPrivateRepos: privateRepoData.totalPrivateRepos,
         repoDetails: privateRepoData.repoDetails,
@@ -79,7 +79,7 @@ import { ProofManager } from '../services/zkProofManager.ts';
       });
 
       // Generate activity proof (Noir)
-      const activityProof = await zkProvider.generateActivityProof({
+      const activityProof = await zkBrowserProvider.generateActivityProof({
         contributionCount: privateRepoData.contributionCount || 0,
         activeDays: privateRepoData.activeDays || 0,
         longestStreak: privateRepoData.longestStreak || 0,
@@ -88,7 +88,7 @@ import { ProofManager } from '../services/zkProofManager.ts';
       });
 
       // Generate ownership proof (Groth16)
-      const ownershipProof = await zkProvider.generateOwnershipProof({
+      const ownershipProof = await zkBrowserProvider.generateOwnershipProof({
         username,
         repoCount: privateRepoData.totalPrivateRepos,
         walletAddress: account,
@@ -97,7 +97,7 @@ import { ProofManager } from '../services/zkProofManager.ts';
       });
 
       // Generate language proof (FFlonk)
-      const languageProof = await zkProvider.generateLanguageProof({
+      const languageProof = await zkBrowserProvider.generateLanguageProof({
         languages: privateRepoData.languageStats || {},
         primaryLanguage: Object.entries(privateRepoData.languageStats || {})
           .sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unknown',
@@ -115,7 +115,7 @@ import { ProofManager } from '../services/zkProofManager.ts';
       }));
 
       // Verify proofs through zkVerify blockchain using our ProofManager
-      console.log('Initializing zkVerify session...');
+      console.log('Initializing proofs verification...');
       let verificationResults = [];
 
       // Handle each proof individually through our ProofManager
@@ -161,34 +161,34 @@ import { ProofManager } from '../services/zkProofManager.ts';
           results: verificationResults,
           txHash: verificationResults[0]?.verified?.events?.includedInBlock?.transactionHash
         };
-      setState(prev => ({
-        ...prev,
-        status: 'success',
-        verificationResult
-      }));
+        
+        setState(prev => ({
+          ...prev,
+          status: 'success',
+          verificationResult
+        }));
 
-      // Call the callback with the proofs and verification result
-      if (onProofGenerated) {
-        onProofGenerated(proofs, verificationResult);
+        // Call the callback with the proofs and verification result
+        if (onProofGenerated) {
+          onProofGenerated(proofs, verificationResult);
+        }
+      } catch (error) {
+        console.error('Error verifying ZK proofs:', error);
+        setState(prev => ({
+          ...prev,
+          status: 'error',
+          error: error.message || 'Failed to verify ZK proofs'
+        }));
       }
-
     } catch (error) {
       console.error('Error generating ZK proofs:', error);
       setState(prev => ({
         ...prev,
         status: 'error',
-        error: error.message || 'Failed to generate and verify ZK proofs'
+        error: error.message || 'Failed to generate ZK proofs'
       }));
     }
-  } catch (error) {
-    console.error('Error generating ZK proofs:', error);
-    setState(prev => ({
-      ...prev,
-      status: 'error',
-      error: error.message || 'Failed to generate ZK proofs'
-    }));
-  }
-};
+  };
 
   // Format proof type for display
   const formatProofType = (type) => {
@@ -207,7 +207,7 @@ import { ProofManager } from '../services/zkProofManager.ts';
   };
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-lg">
+    <div className="bg-white p-6 rounded-lg shadow-lg mt-6">
       <div className="flex items-center mb-4">
         <svg 
           className="h-6 w-6 text-indigo-600 mr-2" 
@@ -276,7 +276,7 @@ import { ProofManager } from '../services/zkProofManager.ts';
                             <span className="font-semibold">{formatProofType(proof.proofType)}</span>
                             {proof.verifiedAt && (
                               <span className="text-green-700">
-                                {new Date(proof.verifiedAt).toLocaleDateString()} 
+                                {typeof proof.verifiedAt === 'object' ? proof.verifiedAt.toLocaleDateString() : new Date().toLocaleDateString()} 
                               </span>
                             )}
                           </div>
@@ -301,14 +301,10 @@ import { ProofManager } from '../services/zkProofManager.ts';
                   {state.verificationResult?.txHash && (
                     <div className="mt-3 flex justify-between items-center text-xs">
                       <span className="text-green-800">Verification Transaction:</span>
-                      <a 
-                        href={`https://explorer.zkverify.io/tx/${state.verificationResult.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800"
-                      >
-                        View on zkVerify Explorer
-                      </a>
+                      <span className="text-blue-600">
+                        {/* In a real app, this would link to zkVerify Explorer */}
+                        {state.verificationResult.txHash.substring(0, 10)}...
+                      </span>
                     </div>
                   )}
                 </div>
@@ -456,7 +452,7 @@ import { ProofManager } from '../services/zkProofManager.ts';
           
           <div className="border-t border-gray-200 pt-4">
             <p className="text-xs text-gray-500">
-              <strong>How it works:</strong> Multiple zero-knowledge proof systems from zkVerify allow you to prove various aspects of your private repositories without revealing sensitive information. Only aggregate statistics and verified proofs are included in your on-chain score.
+              <strong>Note:</strong> This implementation uses simulated ZK proofs for demonstration purposes. In a production environment, these would be actual zero-knowledge proofs generated and verified on the zkVerify blockchain.
             </p>
           </div>
         </div>

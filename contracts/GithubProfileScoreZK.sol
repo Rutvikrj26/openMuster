@@ -418,11 +418,6 @@ contract GitHubProfileScoreZK {
         return registeredWallets.length;
     }
     
-    /**
-     * @dev Get the GitHub username associated with a wallet
-     * @param wallet Wallet address to look up
-     * @return GitHub username and verification status
-     */
     function getWalletGitHubInfo(address wallet) public view returns (
         string memory username, 
         bool verified, 
