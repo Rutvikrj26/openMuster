@@ -121,15 +121,117 @@ The project uses a secure multi-step verification process:
 3. Our backend verifies both signatures and records the verified association
 4. Smart contract checks verification status before allowing private data inclusion
 
-## Zero-Knowledge Privacy
+## Zero-Knowledge Features
 
-For private repository analysis, the application implements a privacy-preserving approach:
+- **Multiple ZK Proof Systems**: Leverages four different ZK proof technologies from zkVerify:
+  - **RiscZero ZKVM**: For code metrics and complexity analysis
+  - **Noir Hyperplonk**: For contribution frequency and activity verification
+  - **Groth16**: For repository ownership verification
+  - **Polygon FFlonk**: For language proficiency verification
 
-1. Private repository data is processed locally
-2. Only aggregate metrics are used in score calculation
-3. A zero-knowledge proof verifies the metrics without revealing sensitive data
-4. The smart contract stores the proof reference but not the private data
+- **Privacy-Preserving Analysis**: Users can include private repositories in their GitHub score calculation without exposing repository contents, commit details, or other sensitive information.
+
+- **On-Chain Verification**: All ZK proofs are verified on the zkVerify blockchain and linked to the user's profile in our smart contract.
+
+- **ZK Badges**: Users earn verifiable ZK badges that demonstrate specific skills or achievements without revealing the underlying data.
+
+## Architecture
+
+![GitHub Profile zkVerify Architecture](./docs/zk-architecture.png)
+
+The zkVerify integration follows this flow:
+
+1. User connects wallet and authorizes GitHub with OAuth
+2. Private repository metadata is retrieved via GitHub API
+3. Multiple ZK proofs are generated locally:
+   - Code metrics proof (RiscZero ZKVM)
+   - Activity proof (Noir Hyperplonk)
+   - Ownership proof (Groth16)
+   - Language proof (Polygon FFlonk)
+4. Proofs are submitted to zkVerify for verification
+5. Verification results are stored on-chain via our ZKVerifyBridge
+6. User profile displays enhanced score with ZK badges
+
+## Smart Contracts
+
+- **GitHubProfileScoreZK.sol**: Extends the original contract with ZK proof verification support
+- **ZKVerifyBridge.sol**: Acts as a bridge between zkVerify blockchain and our application
+
+## Setup Instructions
+
+### Prerequisites
+
+- Node.js and npm
+- MetaMask or another Ethereum wallet
+- Test ETH on Base Sepolia testnet
+- GitHub account and OAuth application
+- zkVerify API key (sign up at https://zkverify.io)
+
+### Environment Variables
+
+Add these to your `.env` file:
+
+```
+REACT_APP_ZKVERIFY_API_URL=https://api.zkverify.io
+REACT_APP_ZKVERIFY_API_KEY=your_zkverify_api_key
+```
+
+### Deployment
+
+```bash
+# Deploy the ZK-enabled contracts
+npx hardhat run scripts/deploy-zk-contracts.js --network base_sepolia
+```
+
+## Using ZK Proofs
+
+1. Connect your wallet and verify your GitHub account via OAuth
+2. When analyzing your profile, check "Use zero-knowledge proofs to protect private repo data"
+3. Click "Generate Multiple ZK Proofs via zkVerify"
+4. Wait for proofs to be generated and verified on zkVerify blockchain
+5. Your profile will be updated with ZK badges and enhanced score
+
+## ZK Proof Details
+
+### Code Metrics Proof (RiscZero ZKVM)
+
+Proves facts about repository metrics without revealing the actual code:
+- Number of repositories
+- Lines of code
+- Code complexity
+- Stars and forks
+
+### Activity Proof (Noir Hyperplonk)
+
+Proves contribution activity without revealing specific commits:
+- Contribution frequency
+- Active days per week/month
+- Contribution streaks
+- Contribution patterns
+
+### Ownership Proof (Groth16)
+
+Proves repository ownership without revealing repository details:
+- Wallet-to-GitHub association
+- Repository access rights
+- Ownership duration
+- Repository count
+
+### Language Proof (Polygon FFlonk)
+
+Proves language proficiency without revealing code:
+- Languages used
+- Primary language
+- Language distribution
+- Language diversity
+
+## Resources
+
+- [zkVerify Documentation](https://docs.zkverify.io)
+- [RiscZero Documentation](https://www.risczero.com/docs)
+- [Noir Documentation](https://noir-lang.org/docs)
+- [Groth16 Paper](https://eprint.iacr.org/2016/260.pdf)
+- [Polygon FFlonk Documentation](https://polygon.technology/blog/introducing-plonky2-and-fflonk)
 
 ## License
-
 MIT

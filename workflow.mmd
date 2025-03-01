@@ -2,30 +2,22 @@ sequenceDiagram
     participant User
     participant Frontend
     participant OAuth Server
-    participant GitHub
+    participant ZK Prover
+    participant zkVerify
     participant Smart Contract
     
-    User->>Frontend: Connect Wallet
-    Frontend->>User: Request Signature
-    User->>Frontend: Sign Message
-    Frontend->>Frontend: Store Signature
+    User->>Frontend: Connect wallet & Authorize GitHub
+    Frontend->>OAuth Server: Request private repo access
+    OAuth Server->>Frontend: Return private repo metadata
     
-    User->>Frontend: Click "Connect GitHub"
-    Frontend->>OAuth Server: Initiate OAuth (include wallet address)
-    OAuth Server->>GitHub: Redirect to GitHub OAuth
-    GitHub->>User: Request Authorization
-    User->>GitHub: Authorize Application
-    GitHub->>OAuth Server: Callback with Code
+    Frontend->>ZK Prover: Generate proofs for private repo data
+    Note over ZK Prover: 1. RiscZero ZKVM for code metrics<br>2. Noir Hyperplonk for activity proof<br>3. Groth16 for ownership verification
+    ZK Prover->>Frontend: Return multiple ZK proofs
     
-    OAuth Server->>GitHub: Exchange Code for Token
-    GitHub->>OAuth Server: Access Token
-    OAuth Server->>GitHub: Get User Profile
-    GitHub->>OAuth Server: GitHub Username + Data
+    Frontend->>zkVerify: Submit proofs for verification
+    zkVerify->>Frontend: Return verification results
     
-    OAuth Server->>OAuth Server: Verify Wallet-GitHub Pair
-    OAuth Server->>Frontend: Return Verification Token
-    
-    Frontend->>Smart Contract: Store Verified Association
+    Frontend->>Smart Contract: Store verification results & enhanced score
     Smart Contract->>Frontend: Confirmation
     
-    Frontend->>User: Display Success + Profile Access
+    Frontend->>User: Display enhanced profile with ZK badges

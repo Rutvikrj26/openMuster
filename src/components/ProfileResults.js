@@ -3,6 +3,9 @@ import { useParams, Link } from 'react-router-dom';
 import { ethers } from 'ethers';
 import axios from 'axios';
 import { GitHubProfileAnalyzer } from '../services/githubAnalyzer';
+import ZKPrivateProof from './ZKPrivateProof';
+import ProofBadges from './ProofBadges';
+import zkProvider from '../services/zkProvider';
 
 const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => {
   const { username } = useParams();
@@ -11,7 +14,9 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
   const [error, setError] = useState('');
   const [recalculating, setRecalculating] = useState(false);
   const [githubToken, setGithubToken] = useState(null);
-  
+  const [zkProofs, setZkProofs] = useState([]);
+  const [showZkProofSection, setShowZkProofSection] = useState(false);
+
   // New state for OAuth token
   const [showTokenInput, setShowTokenInput] = useState(false);
   
@@ -66,6 +71,54 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
     
     fetchProfileData();
   }, [contract, username]);
+
+  useEffect(() => {
+    const checkZkProofs = async () => {
+      if (!contract || !username || !profileData) return;
+      
+      try {
+        // Check if the profile has ZK verifications
+        if (profileData.hasZkVerification) {
+          // Get all ZK proof verifications
+          const allProofs = await contract.getAllZkProofVerifications(username);
+          
+          // Format for our component
+          const formattedProofs = allProofs.map(proof => ({
+            proofType: proof.proofType,
+            verificationId: proof.verificationId,
+            txHash: proof.txHash,
+            verifiedAt: new Date(proof.verifiedAt.toNumber() * 1000)
+          }));
+          
+          setZkProofs(formattedProofs);
+        }
+      } catch (error) {
+        console.error('Error fetching ZK proofs:', error);
+      }
+    };
+    
+    checkZkProofs();
+  }, [contract, username, profileData]);
+
+  const handleProofGenerated = async (proofs, verificationResult) => {
+    // Update local state with the new proofs
+    const newProofs = proofs.map(proof => ({
+      proofType: proof.proofType,
+      verificationId: proof.proofId,
+      txHash: verificationResult?.txHash || '',
+      verifiedAt: new Date()
+    }));
+    
+    setZkProofs(newProofs);
+
+    setProfileData(prev => ({
+        ...prev,
+        hasZkVerification: true
+      }));
+
+    await fetchProfileData();
+
+   };
 
   // Function to recalculate profile score
   const handleRecalculate = async (includePrivateRepos = false) => {
@@ -353,6 +406,18 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
                   placeholder="Enter your GitHub token with repo scope"
                   className="flex-grow min-w-0 block w-full px-3 py-2 rounded-md border border-gray-300 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 />
+                <div className="flex items-center mt-2">
+                <input
+                    type="checkbox"
+                    id="useZkProofs"
+                    checked={showZkProofSection}
+                    onChange={e => setShowZkProofSection(e.target.checked)}
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                />
+                <label htmlFor="useZkProofs" className="ml-2 block text-sm text-blue-100">
+                    Use zero-knowledge proofs to protect private repo data
+                </label>
+                </div>
                 <button
                   onClick={() => handleRecalculate(true)}
                   disabled={!githubToken || recalculating}
@@ -367,11 +432,27 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
             </div>
           )}
         </div>
-        
+
+        {showZkProofSection && privateRepoData && (
+        <ZKPrivateProof
+            privateRepoData={privateRepoData}
+            contract={contract}
+            account={account}
+            username={username}
+            onProofGenerated={handleProofGenerated}
+        />
+        )}
+
         {/* Score breakdown */}
         <div className="p-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">Score Breakdown</h2>
-          
+
+          {zkProofs.length > 0 && (
+            <div className="px-6 py-3 bg-indigo-50">
+                <ProofBadges proofs={zkProofs} />
+            </div>
+            )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-gray-50 p-4 rounded-lg">
               <div className="text-sm font-medium text-gray-500">Profile Completeness</div>
@@ -498,21 +579,20 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
             </div>
             
             <div>
-              <span className="font-medium text-gray-500">Verification Status:</span>
-              <p className="mt-1">
-                {isOwnVerifiedProfile ? (
-                  <span className="text-green-600 font-medium flex items-center">
-                    <svg className="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    Verified profile owner
-                  </span>
-                ) : (
-                  <span className="text-gray-500">Not verified</span>
-                )}
-              </p>
+                <span className="font-medium text-gray-500">Data Privacy:</span>
+                <p className="mt-1 text-gray-900">
+                    {profileData.includesPrivateRepos ? (
+                    <span className="text-green-600 font-medium">
+                        {profileData.hasZkVerification 
+                        ? "Includes private repositories (ZK verified)" 
+                        : "Includes private repositories"}
+                    </span>
+                    ) : (
+                    <span className="text-gray-500">Public repositories only</span>
+                    )}
+                </p>
+                </div>          
             </div>
-          </div>
         </div>
       </div>
       
