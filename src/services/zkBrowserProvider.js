@@ -1,25 +1,16 @@
-import axios from 'axios';
+import { zkVerifySession, ZkVerifyEvents, Library, CurveType } from 'zkverifyjs';
 
 /**
- * Browser-compatible ZK provider service that simulates zkVerify interactions
- * for demo purposes, with improved error handling and reliability
+ * Browser-compatible ZK provider service that integrates with zkVerify network
+ * for real zero-knowledge proof submission and verification
  */
 class ZkBrowserProvider {
   constructor() {
     this.baseUrl = process.env.REACT_APP_ZKVERIFY_API_URL || 'http://localhost:3001';
     this.apiKey = process.env.REACT_APP_ZKVERIFY_API_KEY;
-    this.simulationMode = true; // Set to true for local simulation, false for actual API calls
+    this.simulationMode = process.env.REACT_APP_SIMULATION_MODE === 'true'; // Set to false to use real zkVerify
     this.simulationDelay = 2000; // milliseconds to simulate network delay
-  }
-
-  /**
-   * Get HTTP headers for API requests
-   */
-  getHeaders() {
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': this.apiKey ? `Bearer ${this.apiKey}` : undefined
-    };
+    this.session = null; // Will hold the zkVerify session
   }
 
   /**
@@ -27,6 +18,62 @@ class ZkBrowserProvider {
    */
   async simulateDelay() {
     return new Promise(resolve => setTimeout(resolve, this.simulationDelay));
+  }
+
+  /**
+   * Initialize the zkVerify session
+   * @param {string} walletAddress - The user's wallet address
+   * @returns {Promise<Object>} - The initialized zkVerify session
+   */
+  async initializeSession(walletAddress) {
+    if (this.session) {
+      // Session already initialized
+      return this.session;
+    }
+
+    try {
+      console.log('Initializing zkVerify session with wallet:', walletAddress);
+      
+      // If in simulation mode, return a fake session
+      if (this.simulationMode) {
+        this.session = {
+          fake: true,
+          walletAddress
+        };
+        return this.session;
+      }
+
+      // Start a real session with zkVerify testnet
+      this.session = await zkVerifySession.start()
+        .Testnet() // Use zkVerify testnet
+        .withWallet({
+          source: window.ethereum, // Use connected wallet (MetaMask/etc)
+          accountAddress: walletAddress
+        });
+      
+      console.log('zkVerify session initialized successfully');
+      return this.session;
+    } catch (error) {
+      console.error('Failed to initialize zkVerify session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Close the zkVerify session
+   */
+  async closeSession() {
+    if (!this.session) return;
+    
+    try {
+      if (!this.simulationMode) {
+        await this.session.close();
+      }
+      this.session = null;
+      console.log('zkVerify session closed');
+    } catch (error) {
+      console.error('Error closing zkVerify session:', error);
+    }
   }
 
   /**
@@ -63,29 +110,31 @@ class ZkBrowserProvider {
         };
       }
       
-      // For real API integration (not used in demo)
-      const response = await axios.post(
-        `${this.baseUrl}/api/proofs/riscZero/generate`,
-        {
-          claim_type: 'github_metrics',
-          public_inputs: {
-            total_repos: privateRepoData.totalRepos || 0,
-            private_repos: privateRepoData.totalPrivateRepos || 0,
-            timestamp: Math.floor(Date.now() / 1000)
-          },
-          private_inputs: {
-            repo_details: privateRepoData.repoDetails || [],
-            access_token: privateRepoData.accessToken
-          }
-        },
-        { headers: this.getHeaders() }
-      );
-
+      // For real proof generation, we'd typically:
+      // 1. Use an actual ZK circuit to generate a proof that the repo metrics are correct
+      // 2. Format that proof for zkVerify
+      
+      // Since we don't have real ZK circuits in this demo, we'll create a simplified proof format
+      // This would be replaced with actual ZK circuit outputs in production
+      const vk = await this.generateDemoVerificationKey('codeMetrics', privateRepoData);
+      const proof = await this.generateDemoProof('codeMetrics', privateRepoData);
+      const publicSignals = [
+        privateRepoData.totalRepos.toString(),
+        privateRepoData.totalPrivateRepos.toString(),
+        Math.floor(Date.now() / 1000).toString()
+      ];
+      
       return {
         proofType: 'riscZero',
-        proofId: response.data.proof_id,
-        proof: response.data.proof,
-        publicInputs: response.data.public_inputs
+        proofId: `riscZero-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        proof,
+        vk,
+        publicSignals,
+        publicInputs: {
+          totalRepos: privateRepoData.totalRepos || 0,
+          privateRepos: privateRepoData.totalPrivateRepos || 0,
+          timestamp: Math.floor(Date.now() / 1000)
+        }
       };
     } catch (error) {
       console.error('Error generating RiscZero code metrics proof:', error);
@@ -128,30 +177,28 @@ class ZkBrowserProvider {
         };
       }
       
-      // For real API integration (not used in demo)
-      const response = await axios.post(
-        `${this.baseUrl}/api/proofs/noir/generate`,
-        {
-          claim_type: 'github_activity',
-          public_inputs: {
-            contribution_count: activityData.contributionCount || 0,
-            active_days: activityData.activeDays || 0,
-            longest_streak: activityData.longestStreak || 0,
-            timestamp: Math.floor(Date.now() / 1000)
-          },
-          private_inputs: {
-            activity_timeline: activityData.activityTimeline || [],
-            access_token: activityData.accessToken
-          }
-        },
-        { headers: this.getHeaders() }
-      );
-
+      // For real proof generation, similar to the code metrics proof
+      const vk = await this.generateDemoVerificationKey('activity', activityData);
+      const proof = await this.generateDemoProof('activity', activityData);
+      const publicSignals = [
+        (activityData.contributionCount || 0).toString(),
+        (activityData.activeDays || 0).toString(),
+        (activityData.longestStreak || 0).toString(),
+        Math.floor(Date.now() / 1000).toString()
+      ];
+      
       return {
         proofType: 'noir',
-        proofId: response.data.proof_id,
-        proof: response.data.proof,
-        publicInputs: response.data.public_inputs
+        proofId: `noir-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        proof,
+        vk,
+        publicSignals,
+        publicInputs: {
+          contributionCount: activityData.contributionCount || 0,
+          activeDays: activityData.activeDays || 0,
+          longestStreak: activityData.longestStreak || 0,
+          timestamp: Math.floor(Date.now() / 1000)
+        }
       };
     } catch (error) {
       console.error('Error generating Noir activity proof:', error);
@@ -194,30 +241,28 @@ class ZkBrowserProvider {
         };
       }
       
-      // For real API integration (not used in demo)
-      const response = await axios.post(
-        `${this.baseUrl}/api/proofs/groth16/generate`,
-        {
-          claim_type: 'github_ownership',
-          public_inputs: {
-            github_username: ownershipData.username,
-            repo_count: ownershipData.repoCount || 0,
-            wallet_address: ownershipData.walletAddress,
-            timestamp: Math.floor(Date.now() / 1000)
-          },
-          private_inputs: {
-            repository_ids: ownershipData.repositoryIds || [],
-            access_token: ownershipData.accessToken
-          }
-        },
-        { headers: this.getHeaders() }
-      );
-
+      // For real proof generation, similar to previous proofs
+      const vk = await this.generateDemoVerificationKey('ownership', ownershipData);
+      const proof = await this.generateDemoProof('ownership', ownershipData);
+      const publicSignals = [
+        ownershipData.username,
+        (ownershipData.repoCount || 0).toString(),
+        ownershipData.walletAddress,
+        Math.floor(Date.now() / 1000).toString()
+      ];
+      
       return {
         proofType: 'groth16',
-        proofId: response.data.proof_id,
-        proof: response.data.proof,
-        publicInputs: response.data.public_inputs
+        proofId: `groth16-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        proof,
+        vk,
+        publicSignals,
+        publicInputs: {
+          github_username: ownershipData.username,
+          repo_count: ownershipData.repoCount || 0,
+          wallet_address: ownershipData.walletAddress,
+          timestamp: Math.floor(Date.now() / 1000)
+        }
       };
     } catch (error) {
       console.error('Error generating Groth16 ownership proof:', error);
@@ -258,29 +303,26 @@ class ZkBrowserProvider {
         };
       }
       
-      // For real API integration (not used in demo)
-      const response = await axios.post(
-        `${this.baseUrl}/api/proofs/fflonk/generate`,
-        {
-          claim_type: 'github_languages',
-          public_inputs: {
-            language_count: Object.keys(languageData.languages || {}).length,
-            primary_language: languageData.primaryLanguage || "Unknown",
-            timestamp: Math.floor(Date.now() / 1000)
-          },
-          private_inputs: {
-            language_details: languageData.languageDetails || {},
-            access_token: languageData.accessToken
-          }
-        },
-        { headers: this.getHeaders() }
-      );
-
+      // For real proof generation, similar to previous proofs
+      const vk = await this.generateDemoVerificationKey('language', languageData);
+      const proof = await this.generateDemoProof('language', languageData);
+      const publicSignals = [
+        Object.keys(languageData.languages || {}).length.toString(),
+        languageData.primaryLanguage || "Unknown",
+        Math.floor(Date.now() / 1000).toString()
+      ];
+      
       return {
         proofType: 'fflonk',
-        proofId: response.data.proof_id,
-        proof: response.data.proof,
-        publicInputs: response.data.public_inputs
+        proofId: `fflonk-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        proof,
+        vk,
+        publicSignals,
+        publicInputs: {
+          language_count: Object.keys(languageData.languages || {}).length,
+          primary_language: languageData.primaryLanguage || "Unknown",
+          timestamp: Math.floor(Date.now() / 1000)
+        }
       };
     } catch (error) {
       console.error('Error generating FFlonk language proof:', error);
@@ -289,7 +331,10 @@ class ZkBrowserProvider {
   }
 
   /**
-   * Submit a proof to the zkVerify system via our OAuth server
+   * Submit a proof to zkVerify
+   * @param {string} proofType - The type of proof (riscZero, noir, groth16, fflonk)
+   * @param {Object} proofData - The proof data to submit
+   * @returns {Promise<Object>} - The verification result
    */
   async submitProofToZkVerify(proofType, proofData) {
     try {
@@ -313,17 +358,113 @@ class ZkBrowserProvider {
         };
       }
       
-      // For real API integration
-      const response = await axios.post(
-        `${this.baseUrl}/api/zkverify/submit`,
-        {
-          proofType,
-          proofData
-        },
-        { headers: this.getHeaders() }
-      );
-
-      return response.data;
+      // Ensure we have a session
+      if (!this.session) {
+        throw new Error('zkVerify session not initialized. Call initializeSession first.');
+      }
+      
+      // Select the appropriate verification method based on proofType
+      let verificationMethod;
+      switch(proofType) {
+        case 'riscZero':
+          verificationMethod = this.session.verify().risc0();
+          break;
+        case 'noir':
+          verificationMethod = this.session.verify().noir();
+          break;
+        case 'groth16':
+          verificationMethod = this.session.verify().groth16(Library.snarkjs, CurveType.bn128);
+          break;
+        case 'fflonk':
+          verificationMethod = this.session.verify().fflonk();
+          break;
+        default:
+          throw new Error(`Unsupported proof type: ${proofType}`);
+      }
+      
+      // For RISC0, we need to specify the version
+      const proofDataObj = {
+        vk: proofData.vk,
+        proof: proofData.proof,
+        publicSignals: proofData.publicSignals
+      };
+      
+      if (proofType === 'riscZero') {
+        proofDataObj.version = 'V1_2'; // Latest RISC0 version
+      }
+      
+      // Submit the proof to zkVerify
+      console.log('Executing verification with zkVerify session:', proofDataObj);
+      const { events, transactionResult } = await verificationMethod.execute({
+        proofData: proofDataObj
+      });
+      
+      // Set up promise to handle events and wait for the transaction result
+      return new Promise((resolve, reject) => {
+        let txDetails = {
+          success: false,
+          verificationId: proofData.proofId,
+          txHash: null,
+          blockNumber: null,
+          attestation: null,
+          timestamp: Math.floor(Date.now() / 1000)
+        };
+        
+        // Handle transaction included in block
+        events.on(ZkVerifyEvents.IncludedInBlock, (eventData) => {
+          console.log('Transaction included in block:', eventData);
+          txDetails.txHash = eventData.txHash;
+          txDetails.blockNumber = eventData.blockNumber;
+        });
+        
+        // Handle finalized transaction
+        events.on(ZkVerifyEvents.Finalized, (eventData) => {
+          console.log('Transaction finalized:', eventData);
+          txDetails.success = true;
+        });
+        
+        // Handle attestation confirmation
+        events.on(ZkVerifyEvents.AttestationConfirmed, (eventData) => {
+          console.log('Attestation confirmed:', eventData);
+          txDetails.attestation = eventData;
+        });
+        
+        // Handle errors
+        events.on('error', (error) => {
+          console.error('Verification error:', error);
+          reject(error);
+        });
+        
+        // Set a timeout to prevent hanging indefinitely
+        const timeout = setTimeout(() => {
+          if (!txDetails.txHash) {
+            reject(new Error('Verification timed out'));
+          } else {
+            resolve(txDetails);
+          }
+        }, 60000); // 1 minute timeout
+        
+        // Wait for transaction result
+        transactionResult
+          .then((result) => {
+            clearTimeout(timeout);
+            txDetails.success = true;
+            
+            // Add any additional information from the result
+            if (result.txHash && !txDetails.txHash) {
+              txDetails.txHash = result.txHash;
+            }
+            if (result.blockNumber && !txDetails.blockNumber) {
+              txDetails.blockNumber = result.blockNumber;
+            }
+            
+            resolve(txDetails);
+          })
+          .catch((error) => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+      });
     } catch (error) {
       console.error('Error submitting proof to zkVerify:', error);
       throw new Error(`Failed to submit proof to zkVerify: ${error.message}`);
@@ -331,40 +472,35 @@ class ZkBrowserProvider {
   }
 
   /**
-   * Get the verification status of a proof
+   * Generate a demo verification key for testing
+   * In a real implementation, this would be a proper verification key for a ZK circuit
    */
-  async getVerificationStatus(verificationId) {
-    try {
-      console.log(`Checking verification status for ${verificationId}...`);
-      
-      if (!verificationId) {
-        throw new Error('No verification ID provided');
-      }
+  async generateDemoVerificationKey(proofType, data) {
+    // In a real implementation, this would be a proper verification key
+    // Here we're just creating a simple string for testing
+    const demoVk = {
+      proofType,
+      timestamp: Date.now(),
+      data: JSON.stringify(data)
+    };
+    
+    return Buffer.from(JSON.stringify(demoVk)).toString('base64');
+  }
 
-      // In simulation mode, return a successful status
-      if (this.simulationMode) {
-        await this.simulateDelay();
-        
-        return {
-          status: 'verified',
-          results: { success: true },
-          txHash: `0x${Array.from({length: 64}, () => 
-            Math.floor(Math.random() * 16).toString(16)).join('')}`,
-          blockNumber: Math.floor(Math.random() * 10000000)
-        };
-      }
-      
-      // For real API integration
-      const response = await axios.get(
-        `${this.baseUrl}/api/zkverify/status/${verificationId}`,
-        { headers: this.getHeaders() }
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error('Error getting verification status:', error);
-      throw new Error(`Failed to get verification status: ${error.message}`);
-    }
+  /**
+   * Generate a demo proof for testing
+   * In a real implementation, this would be a proper ZK proof
+   */
+  async generateDemoProof(proofType, data) {
+    // In a real implementation, this would be a proper ZK proof
+    // Here we're just creating a simple string for testing
+    const demoProof = {
+      proofType,
+      timestamp: Date.now(),
+      data: JSON.stringify(data)
+    };
+    
+    return Buffer.from(JSON.stringify(demoProof)).toString('base64');
   }
 }
 

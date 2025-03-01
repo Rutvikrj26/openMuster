@@ -6,6 +6,7 @@ import { ethers } from 'ethers';
 import ConnectWallet from './components/ConnectWallet';
 import ConnectGitHub from './components/ConnectGithub';
 import UsernameInput from './components/UsernameInput';
+import ZKPrivateProof from './components/ZKPrivateProof';
 import ProfileResults from './components/ProfileResults';
 import VerificationSuccess from './components/VerificationSuccess';
 import VerificationFailed from './components/VerificationFailed';

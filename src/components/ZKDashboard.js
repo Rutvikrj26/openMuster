@@ -1,13 +1,64 @@
 import React, { useState, useEffect } from 'react';
-import { ZKVerifySubmissionService } from '../services/zkVerify';
-import zkBrowserProvider from '../services/zkBrowserProvider';
+import { ProofManager } from '../services/zkProofManager';
+import zkContractService from '../services/zkContractService';
+import ProofDetailsViewer from './ProofDetailsViewer';
 
-const ZKDashboard = ({ privateRepoData, account, username, onProofsGenerated }) => {
-  const [status, setStatus] = useState('idle');
+const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGenerated }) => {
+  const [status, setStatus] = useState('idle'); // idle, initializing, generating, verifying, storing, success, error
   const [proofs, setProofs] = useState([]);
   const [currentProof, setCurrentProof] = useState(null);
   const [error, setError] = useState(null);
   const [verificationResults, setVerificationResults] = useState([]);
+  const [progress, setProgress] = useState(0);
+  const [contractStatus, setContractStatus] = useState('idle'); // idle, storing, success, error
+  const [blockchainTxHash, setBlockchainTxHash] = useState(null);
+  
+  const proofManager = new ProofManager();
+  
+  // Initialize services when component mounts
+  useEffect(() => {
+    const initializeServices = async () => {
+      if (account && contract) {
+        try {
+          setStatus('initializing');
+          
+          // Initialize proof manager
+          await proofManager.initialize(account);
+          
+          // Initialize contract service
+          zkContractService.initialize(contract, account);
+          
+          // Check if username already has ZK verifications
+          const hasVerification = await zkContractService.hasZkVerification(username);
+          
+          if (hasVerification) {
+            try {
+              // Fetch existing verifications
+              const existingProofs = await zkContractService.getProofVerifications(username);
+              setProofs(existingProofs);
+              setStatus('success');
+            } catch (error) {
+              console.error('Error fetching existing verifications:', error);
+              setStatus('idle');
+            }
+          } else {
+            setStatus('idle');
+          }
+        } catch (error) {
+          console.error('Error initializing services:', error);
+          setError('Failed to initialize ZK services: ' + error.message);
+          setStatus('error');
+        }
+      }
+    };
+    
+    initializeServices();
+    
+    // Clean up when component unmounts
+    return () => {
+      proofManager.cleanup();
+    };
+  }, [account, contract, username]);
   
   // Define proof types and their information
   const proofTypes = [
@@ -69,37 +120,46 @@ const ZKDashboard = ({ privateRepoData, account, username, onProofsGenerated }) 
     }
 
     try {
+      // Reset state
       setStatus('generating');
       setError(null);
-      setProofs([]);
       setVerificationResults([]);
+      setProgress(0);
+      setBlockchainTxHash(null);
+      setContractStatus('idle');
 
       // Generate each proof type sequentially
-      const results = [];
+      const generatedProofs = [];
+      
+      // Track overall progress
+      let currentStep = 0;
+      const totalSteps = proofTypes.length + 1; // +1 for storing on blockchain
       
       for (const proofType of proofTypes) {
         setCurrentProof(proofType);
-        
-        // Wait a bit to show the progress in the UI
-        await new Promise(resolve => setTimeout(resolve, 500));
+        setProgress(Math.round((currentStep / totalSteps) * 100));
         
         // Generate proof based on proof type
-        let proof;
+        let proofResult;
         switch (proofType.id) {
           case 'codeMetrics':
-            proof = await zkBrowserProvider.generateCodeMetricsProof(privateRepoData);
+            proofResult = await proofManager.proveCodeMetrics({
+              ...privateRepoData,
+              walletAddress: account
+            });
             break;
           case 'activity':
-            proof = await zkBrowserProvider.generateActivityProof({
-              contributionCount: Math.floor(Math.random() * 1000),
-              activeDays: Math.floor(Math.random() * 365),
-              longestStreak: Math.floor(Math.random() * 100),
-              activityTimeline: [],
-              accessToken: privateRepoData.accessToken
+            proofResult = await proofManager.proveActivity({
+              contributionCount: privateRepoData.contributionCount || Math.floor(Math.random() * 1000),
+              activeDays: privateRepoData.activeDays || Math.floor(Math.random() * 365),
+              longestStreak: privateRepoData.longestStreak || Math.floor(Math.random() * 100),
+              activityTimeline: privateRepoData.activityTimeline || [],
+              accessToken: privateRepoData.accessToken,
+              walletAddress: account
             });
             break;
           case 'ownership':
-            proof = await zkBrowserProvider.generateOwnershipProof({
+            proofResult = await proofManager.proveOwnership({
               username,
               repoCount: privateRepoData.totalPrivateRepos,
               walletAddress: account,
@@ -108,86 +168,90 @@ const ZKDashboard = ({ privateRepoData, account, username, onProofsGenerated }) 
             });
             break;
           case 'language':
-            proof = await zkBrowserProvider.generateLanguageProof({
+            proofResult = await proofManager.proveLanguage({
               languages: privateRepoData.languageStats || {},
               primaryLanguage: Object.entries(privateRepoData.languageStats || {})
                 .sort((a, b) => b[1] - a[1])[0]?.[0] || 'JavaScript',
-              languageDetails: {},
-              accessToken: privateRepoData.accessToken
+              languageDetails: privateRepoData.languageDetails || {},
+              accessToken: privateRepoData.accessToken,
+              walletAddress: account
             });
             break;
           default:
             break;
         }
         
-        results.push({
-          ...proof,
-          status: 'generated',
-          proofTypeName: proofType.name,
-          color: proofType.color,
-          description: proofType.description,
-          icon: proofType.icon
-        });
+        if (proofResult && proofResult.success) {
+          // Add to generated proofs
+          generatedProofs.push({
+            proofType: proofType.type,
+            name: proofType.name,
+            description: proofType.description,
+            color: proofType.color,
+            icon: proofType.icon,
+            verificationId: proofResult.verificationId,
+            txHash: proofResult.txHash,
+            verifiedAt: new Date(),
+            verified: true
+          });
+          
+          // Update verification results
+          setVerificationResults([...generatedProofs]);
+        } else {
+          throw new Error(`Failed to generate ${proofType.name} proof`);
+        }
         
-        // Update the proofs state after each proof generation
-        setProofs([...results]);
+        currentStep++;
       }
 
-      // Move to verification phase
-      setStatus('verifying');
+      // All proofs generated successfully, now store on blockchain
+      setStatus('storing');
       setCurrentProof(null);
-
-      // Verify each proof sequentially with zkVerify
-      const verifiedResults = [];
+      setProgress(Math.round((currentStep / totalSteps) * 100));
+      setContractStatus('storing');
       
-      for (const proof of results) {
-        setCurrentProof({ 
-          id: proof.proofType, 
-          type: proof.proofType,
-          name: proof.proofTypeName,
-          color: proof.color,
-          description: proof.description,
-          icon: proof.icon
-        });
-        
-        // Wait a bit to show the progress in the UI
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Submit to zkVerify
-        const verificationResult = await zkBrowserProvider.submitProofToZkVerify(
-          proof.proofType,
-          {
-            proofId: proof.proofId,
-            proof: proof.proof,
-            publicInputs: proof.publicInputs
-          }
+      try {
+        // Store all proofs on the blockchain
+        const blockchainResult = await zkContractService.storeMultipleProofVerifications(
+          username,
+          generatedProofs
         );
         
-        verifiedResults.push({
-          proofType: proof.proofType,
-          proofTypeName: proof.proofTypeName,
-          verificationId: verificationResult.verificationId,
-          txHash: verificationResult.txHash,
-          verified: true,
-          verifiedAt: new Date(),
-          color: proof.color,
-          description: proof.description,
-          icon: proof.icon
-        });
+        setBlockchainTxHash(blockchainResult.txHash);
+        setContractStatus('success');
         
-        // Update verification results state
-        setVerificationResults([...verifiedResults]);
+        // Update final progress
+        currentStep++;
+        setProgress(100);
+        
+        // Complete the process
+        setStatus('success');
+        setCurrentProof(null);
+        setProofs(generatedProofs);
+        
+        // Call the callback with the proof results
+        if (onProofsGenerated) {
+          onProofsGenerated(generatedProofs, { 
+            success: true, 
+            results: generatedProofs,
+            blockchainTxHash: blockchainResult.txHash 
+          });
+        }
+      } catch (error) {
+        console.error('Error storing proofs on blockchain:', error);
+        setContractStatus('error');
+        
+        // We still consider the overall process successful if zkVerify proofs were generated
+        // but blockchain storage failed
+        setStatus('success');
+        setProofs(generatedProofs);
+        setError(`Proofs were verified on zkVerify but failed to store on blockchain: ${error.message}`);
+        
+        // Call the callback with the proof results
+        if (onProofsGenerated) {
+          onProofsGenerated(generatedProofs, { success: true, results: generatedProofs });
+        }
       }
-
-      // Complete the process
-      setStatus('success');
-      setCurrentProof(null);
-      
-      // Call the callback with the proof results
-      if (onProofsGenerated) {
-        onProofsGenerated(results, { success: true, results: verifiedResults });
-      }
-      
     } catch (error) {
       console.error('Error generating ZK proofs:', error);
       setStatus('error');
@@ -195,34 +259,12 @@ const ZKDashboard = ({ privateRepoData, account, username, onProofsGenerated }) 
     }
   };
 
-  // Get appropriate badge color based on proof type
-  const getBadgeColor = (color) => {
-    switch (color) {
-      case 'blue':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'purple':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'green':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'orange':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  // Format blockchain transaction hash
-  const formatTxHash = (hash) => {
-    if (!hash) return '';
-    return `${hash.substring(0, 8)}...${hash.substring(hash.length - 6)}`;
-  };
-
   return (
     <div className="bg-white rounded-lg shadow-lg overflow-hidden">
       <div className="border-b border-gray-200 p-6">
         <div className="flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-800">
-            Generate Zero-Knowledge Proofs
+            Zero-Knowledge Proofs
           </h2>
           
           {status === 'success' && (
@@ -241,61 +283,34 @@ const ZKDashboard = ({ privateRepoData, account, username, onProofsGenerated }) 
         </p>
       </div>
       
-      {status === 'idle' && (
-        <div className="p-6">
-          <button
-            onClick={generateAllProofs}
-            className="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            Generate All ZK Proofs
-          </button>
-          
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {proofTypes.map(proofType => (
-              <div 
-                key={proofType.id} 
-                className="border border-gray-200 rounded p-3 bg-gray-50"
-              >
-                <div className="flex items-center">
-                  {proofType.icon(`h-5 w-5 text-${proofType.color}-500 mr-2`)}
-                  <span className="font-medium text-gray-800">{proofType.name}</span>
-                </div>
-                <p className="mt-1 text-xs text-gray-600">{proofType.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      
-      {(status === 'generating' || status === 'verifying') && (
-        <div className="p-6">
+      {/* Status indicator */}
+      {(status === 'generating' || status === 'verifying' || status === 'storing') && (
+        <div className="px-6 pt-4">
           <div className="mb-4">
-            <div className="relative">
+            <div className="relative pt-1">
               <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
                 <div 
                   className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center ${
-                    status === 'generating' ? 'bg-blue-500' : 'bg-green-500'
+                    status === 'generating' ? 'bg-blue-500' : 
+                    status === 'verifying' ? 'bg-purple-500' : 
+                    'bg-green-500'
                   }`}
-                  style={{ 
-                    width: status === 'generating' 
-                      ? `${(proofs.length / proofTypes.length) * 100}%` 
-                      : `${(verificationResults.length / proofTypes.length) * 100 + 50}%` 
-                  }}
+                  style={{ width: `${progress}%` }}
                 ></div>
               </div>
             </div>
-            <div className="mt-2 text-center">
-              <span className="text-sm font-medium text-gray-700">
-                {status === 'generating' 
-                  ? `Generating proof ${proofs.length + 1} of ${proofTypes.length}`
-                  : `Verifying proof ${verificationResults.length + 1} of ${proofTypes.length}`
-                }
+            <div className="mt-2 flex justify-between text-xs text-gray-600">
+              <span>
+                {status === 'generating' ? 'Generating Proofs' : 
+                 status === 'verifying' ? 'Verifying on zkVerify' : 
+                 'Storing on Blockchain'}
               </span>
+              <span>{progress}%</span>
             </div>
           </div>
           
           {currentProof && (
-            <div className="flex items-center justify-center p-4 border border-gray-200 rounded-lg bg-gray-50 mb-4">
+            <div className="flex items-center p-4 border border-gray-200 rounded-lg bg-gray-50 mb-4">
               <div className={`animate-pulse mr-3 text-${currentProof.color}-500`}>
                 {currentProof.icon(`h-6 w-6`)}
               </div>
@@ -308,41 +323,47 @@ const ZKDashboard = ({ privateRepoData, account, username, onProofsGenerated }) 
             </div>
           )}
           
-          <div className="space-y-2">
-            {proofs.map((proof, index) => (
+          <div className="space-y-2 mb-4">
+            {verificationResults.map((result, index) => (
               <div 
                 key={index} 
-                className={`flex items-center justify-between p-3 border rounded-lg ${
-                  verificationResults.some(vr => vr.proofType === proof.proofType)
-                    ? 'border-green-200 bg-green-50'
-                    : 'border-gray-200 bg-white'
-                }`}
+                className="flex items-center justify-between p-3 border rounded-lg bg-green-50 border-green-200"
               >
                 <div className="flex items-center">
-                  {proof.icon(`h-5 w-5 text-${proof.color}-500 mr-2`)}
-                  <span className="font-medium text-gray-800">{proof.proofTypeName}</span>
+                  {result.icon(`h-5 w-5 text-${result.color}-500 mr-2`)}
+                  <span className="font-medium text-gray-800">{result.name}</span>
                 </div>
                 
                 <div>
-                  {verificationResults.some(vr => vr.proofType === proof.proofType) ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Verified
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                      Generated
-                    </span>
-                  )}
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <svg className="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    Verified
+                  </span>
                 </div>
               </div>
             ))}
           </div>
+          
+          {status === 'storing' && (
+            <div className="mb-4 p-4 border rounded-lg bg-blue-50 border-blue-200">
+              <div className="flex items-center">
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span className="font-medium text-blue-700">Storing proof verification results on the blockchain...</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
       
-      {status === 'success' && (
+      {/* Success state */}
+      {status === 'success' && proofs.length > 0 && (
         <div className="p-6">
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
             <div className="flex">
               <div className="flex-shrink-0">
                 <svg className="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
@@ -356,53 +377,35 @@ const ZKDashboard = ({ privateRepoData, account, username, onProofsGenerated }) 
                 <div className="mt-2 text-sm text-green-700">
                   <p>Your private repository data has been verified using zero-knowledge proofs on the zkVerify blockchain.</p>
                 </div>
+                
+                {contractStatus === 'success' && blockchainTxHash && (
+                  <div className="mt-2">
+                    <span className="text-xs text-green-600">Blockchain Transaction: </span>
+                    <a 
+                      href={`https://sepolia.basescan.org/tx/${blockchainTxHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 font-mono"
+                    >
+                      {blockchainTxHash.substring(0, 10)}...{blockchainTxHash.substring(blockchainTxHash.length - 8)}
+                    </a>
+                  </div>
+                )}
+                
+                {contractStatus === 'error' && (
+                  <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
+                    Note: Proofs were verified on zkVerify but couldn't be stored on the application blockchain.
+                  </div>
+                )}
               </div>
             </div>
           </div>
           
-          <div className="space-y-3">
-            {verificationResults.map((result, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg overflow-hidden">
-                <div className={`px-4 py-3 ${getBadgeColor(result.color)} border-b`}>
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center">
-                      {result.icon(`h-5 w-5 mr-2`)}
-                      <span className="font-medium">{result.proofTypeName}</span>
-                    </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Verified
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="p-4 bg-white">
-                  <div className="text-sm text-gray-600 mb-2">{result.description}</div>
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <span className="block text-gray-500">TX Hash</span>
-                      <a 
-                        href={`https://explorer.zkverify.io/tx/${result.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 font-mono"
-                      >
-                        {formatTxHash(result.txHash)}
-                      </a>
-                    </div>
-                    <div>
-                      <span className="block text-gray-500">Verified At</span>
-                      <span className="font-medium">
-                        {result.verifiedAt.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <ProofDetailsViewer proofs={proofs} />
         </div>
       )}
       
+      {/* Error state */}
       {status === 'error' && (
         <div className="p-6">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -429,6 +432,33 @@ const ZKDashboard = ({ privateRepoData, account, username, onProofsGenerated }) 
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Initial state */}
+      {status === 'idle' && (
+        <div className="p-6">
+          <button
+            onClick={generateAllProofs}
+            className="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Generate All ZK Proofs
+          </button>
+          
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {proofTypes.map(proofType => (
+              <div 
+                key={proofType.id} 
+                className="border border-gray-200 rounded p-3 bg-gray-50"
+              >
+                <div className="flex items-center">
+                  {proofType.icon(`h-5 w-5 text-${proofType.color}-500 mr-2`)}
+                  <span className="font-medium text-gray-800">{proofType.name}</span>
+                </div>
+                <p className="mt-1 text-xs text-gray-600">{proofType.description}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}

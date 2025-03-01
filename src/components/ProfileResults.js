@@ -7,7 +7,7 @@ import LoadingState from './common/LoadingState';
 import ErrorState from './common/ErrorState';
 import ProfileHeader from './profile/ProfileHeader';
 import TokenInput from './profile/TokenInput';
-import ZKPrivateProof from './ZKPrivateProof';
+import ZKDashboard from './ZKDashboard';
 import ScoreBreakdown from './profile/ScoreBreakdown';
 import BlockchainInfo from './profile/BlockchainInfo';
 import ProfileActions from './profile/ProfileActions';
@@ -27,6 +27,9 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
   const [showZkProofSection, setShowZkProofSection] = useState(false);
   const [privateRepoData, setPrivateRepoData] = useState(null);
   const [showTokenInput, setShowTokenInput] = useState(false);
+  const [storing, setStoring] = useState(false);
+  const [storingError, setStoringError] = useState('');
+  const [storageComplete, setStorageComplete] = useState(false);
   
   const normalizedUsername = username ? username.toLowerCase() : "";
 
@@ -135,31 +138,56 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
     }
   };
 
-  const handleProofGenerated = async (proofs, verificationResult) => {
+  const handleProofGenerated = (proofs, verificationResult) => {
+    // Store proofs in state with updated format
+    setZkProofs(
+      verificationResult.results.map(result => ({
+        proofType: result.proofType,
+        verificationId: result.verificationId,
+        txHash: result.txHash,
+        verifiedAt: result.verifiedAt
+      }))
+    );
+    
+    // Update profile data to indicate it has ZK verification
+    setProfileData(prev => ({
+      ...prev,
+      hasZkVerification: true
+    }));
+    
+    // Optionally refresh data from blockchain
+    fetchProfileData();
+  };
+
+  const storeProofsOnBlockchain = async (proofs) => {
+    if (!contract || !username) return;
+    
     try {
-      console.log("[ZK] Processing generated proofs:", proofs);
+      setStoring(true); // Add a state variable for this
       
-      // Update local state with the new proofs
-      const newProofs = proofs.map(proof => ({
-        proofType: proof.proofType,
-        verificationId: proof.proofId,
-        txHash: verificationResult?.txHash || '',
-        verifiedAt: new Date()
-      }));
+      // For each proof, call the smart contract
+      for (const proof of proofs) {
+        const tx = await contract.addZKProofVerification(
+          normalizedUsername,
+          proof.proofType,
+          proof.verificationId,
+          proof.txHash
+        );
+        
+        await tx.wait();
+        console.log(`Stored ${proof.proofType} proof verification for ${normalizedUsername}`);
+      }
       
-      setZkProofs(newProofs);
-
-      // Properly update state using the functional form of setState
-      setProfileData(prev => ({
-        ...prev,
-        hasZkVerification: true
-      }));
-
-      // Refresh data from blockchain
-      console.log("[ZK] Refreshing profile data after ZK proof generation");
-      await fetchProfileData();
+      // Update UI to show success
+      setStoring(false);
+      setStorageComplete(true);
+      
+      // Refresh data
+      fetchProfileData();
     } catch (error) {
-      console.error("[ZK] Error in handleProofGenerated:", error);
+      console.error('Error storing proof verifications:', error);
+      setStoringError(error.message);
+      setStoring(false);
     }
   };
 
@@ -328,12 +356,12 @@ const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => 
         )}
 
         {showZkProofSection && privateRepoData && (
-          <ZKPrivateProof
+          <ZKDashboard
             privateRepoData={privateRepoData}
             contract={contract}
             account={account}
             username={normalizedUsername}
-            onProofGenerated={handleProofGenerated}
+            onProofsGenerated={handleProofGenerated} // Note the slight rename
           />
         )}
 
