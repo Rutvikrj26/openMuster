@@ -202,10 +202,10 @@ contract OpenSourceBounty is Ownable, ReentrancyGuard {
         );
 
         // Transfer tokens from creator to contract
-        require(
-            paymentToken.transferFrom(msg.sender, address(this), amount),
-            "Token transfer failed"
-        );
+        // require(
+        //     paymentToken.transferFrom(msg.sender, address(this), amount),
+        //     "Token transfer failed"
+        // );
         
         uint256 bountyId = nextBountyId++;
         

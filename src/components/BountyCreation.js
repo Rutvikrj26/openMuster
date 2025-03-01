@@ -87,8 +87,6 @@ const BountyCreation = ({
         signer
       );
       
-      // 3. Format values for contract call
-      const amountInWei = ethers.utils.parseEther(amount.toString());
       const deadlineDate = new Date(deadline);
       const deadlineTimestamp = Math.floor(deadlineDate.getTime() / 1000); // Convert to seconds
       
@@ -99,7 +97,7 @@ const BountyCreation = ({
         issue.title,   // Title
         issue.html_url, // Issue URL
         deadlineTimestamp,
-        { value: amountInWei }
+        { value: amount }
       );
       
       // 5. Wait for transaction to be confirmed

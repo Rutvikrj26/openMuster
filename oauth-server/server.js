@@ -786,7 +786,6 @@ app.get('/api/contract/info', (req, res) => {
   });
 });
 
-// API to create a new bounty (this will be called from the frontend)
 app.post('/api/bounties/create', async (req, res) => {
   const { 
     projectId, 
@@ -801,35 +800,35 @@ app.post('/api/bounties/create', async (req, res) => {
     // 1. Log the environment details
     console.log(`Creating bounty on chain ID: ${(await provider.getNetwork()).chainId}`);
     
+    // 2. Convert amount from ETH to wei
+    const amountWei = ethers.utils.parseEther(amount);
+    console.log(`Creating bounty with amount: ${amount} ETH (${amountWei.toString()} wei)`);
+   
     // 3. Get the token address for verification
-    const tokenAddress = await bountyContract.paymentToken();
+    const tokenAddress = process.env.PAYMENT_TOKEN_ADDRESS
     console.log(`Payment token address: ${tokenAddress}`);
     
-    // 4. Try to get token info for debugging
-    try {
-      const tokenContract = new ethers.Contract(
-        tokenAddress,
-        ["function symbol() view returns (string)"],
-        provider
-      );
-      const symbol = await tokenContract.symbol();
-      console.log(`Payment token symbol: ${symbol}`);
-    } catch (err) {
-      console.warn("Couldn't get token symbol:", err.message);
-    }
+    // 4. Check if the token address is a wallet address (debugging only)
+    const serverWalletAddress = wallet.address;
+    console.log(`Server wallet address: ${serverWalletAddress}`);
     
-    // 5. Create the bounty with manual gas limit
+    // 5. Set up transaction options with just the gas limit
+    const txOptions = { 
+      gasLimit: 500000
+    };
+    
+    // 6. Do NOT add value parameter - the function is not payable
+    console.log(`Creating bounty without sending ETH - contract handles payments separately`);
+    
     const tx = await bountyContract.createBounty(
       projectId,
       issueNumber, // Use issueNumber as issueId if you don't have a separate ID
       issueNumber,
       issueTitle,
       issueUrl,
-      amount,
+      amountWei,
       difficultyLevel,
-      { 
-        gasLimit: 500000
-      }
+      txOptions
     );
     
     console.log(`Transaction sent: ${tx.hash}`);
@@ -858,7 +857,8 @@ app.post('/api/bounties/create', async (req, res) => {
       console.error('Transaction details:', {
         to: error.transaction.to,
         from: error.transaction.from,
-        data: error.transaction.data.substring(0, 66) + '...' // Log partial data
+        data: error.transaction.data.substring(0, 66) + '...',
+        value: error.transaction.value ? ethers.utils.formatEther(error.transaction.value) + ' ETH' : '0 ETH'
       });
     }
     
@@ -868,7 +868,6 @@ app.post('/api/bounties/create', async (req, res) => {
     });
   }
 });
-
 // API to check if an issue already has a bounty
 app.get('/api/bounties/issue/:issueNumber', async (req, res) => {
   const { issueNumber } = req.params;
@@ -998,6 +997,66 @@ app.get('/api/bounties/project/:projectId', async (req, res) => {
     });
   }
 });
+
+// API endpoint to fetch all the bounties uisng getAllOpenBounties function
+app.get('/api/bounties/open', async (req, res) => {
+  try {
+    // Connect to the bounty contract
+    if (!bountyContractAddress) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Bounty contract not configured' 
+      });
+    }
+    
+    // Query contract using provider (read-only)
+    let queryContract;
+    if (!bountyContract) {
+      queryContract = new ethers.Contract(
+        bountyContractAddress, 
+        bountyContractABI,
+        provider
+      );
+    } else {
+      queryContract = bountyContract;
+    }
+    
+    // Get all open bounties
+    const bountyIds = await queryContract.getAllOpenBounties();
+    
+    // Get details for each bounty
+    const bounties = [];
+    for (const id of bountyIds) {
+      try {
+        const bountyDetails = await queryContract.getBounty(id);
+        
+        bounties.push({
+          id: id.toString(),
+          projectId: bountyDetails.projectId.toString(),
+          issueNumber: bountyDetails.issueNumber.toString(),
+          amount: bountyDetails.amount.toString(),
+          deadline: bountyDetails.deadline.toString(),
+          createdAt: bountyDetails.createdAt.toString(),
+          status: getBountyStatusText(bountyDetails.status)
+        });
+      } catch (error) {
+        console.error(`Error getting details for bounty ${id}:`, error);
+      }
+    }
+    
+    res.json({
+      success: true,
+      bounties
+    });
+  } catch (error) {
+    console.error('Error getting open bounties:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get bounties'
+    });
+  }
+});
+
 
 // Helper function to convert bounty status codes to text
 function getBountyStatusText(statusCode) {

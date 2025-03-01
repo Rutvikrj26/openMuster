@@ -154,6 +154,10 @@ const ProjectIssues = ({ account }) => {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
       
+      // Get current network information
+      const network = await provider.getNetwork();
+      console.log("Creating bounty on chain ID:", network.chainId);
+      
       // 2. Connect to bounty contract
       const bountyContract = new ethers.Contract(
         BOUNTY_CONTRACT_ADDRESS,
@@ -172,9 +176,8 @@ const ProjectIssues = ({ account }) => {
         
         // Check native balance instead of token balance
         const balance = await provider.getBalance(account);
-        const amountWei = ethers.utils.parseEther(bountyData.amount);
         
-        if (balance.lt(amountWei)) {
+        if (balance.lt(ethers.utils.parseEther(bountyData.amount))) {
           throw new Error(`Insufficient ETH balance. You need at least ${bountyData.amount} ETH`);
         }
         
@@ -190,19 +193,33 @@ const ProjectIssues = ({ account }) => {
         
         // 5. Get token info with fallbacks for non-standard tokens
         let tokenSymbol = 'TOKENS';
+        let tokenDecimals = 18; // Default to 18 decimals like ETH
+        
         try {
           tokenSymbol = await tokenContract.symbol();
           console.log(`Using token: ${tokenSymbol} (${tokenAddress})`);
+          
+          // Try to get token decimals
+          try {
+            tokenDecimals = await tokenContract.decimals();
+            console.log(`Token decimals: ${tokenDecimals}`);
+          } catch (decimalError) {
+            console.warn("Could not get token decimals, using default (18):", decimalError.message);
+          }
         } catch (error) {
           console.warn("Could not get token symbol, using generic name instead:", error.message);
         }
         
+        // Parse amount with the correct number of decimals
+        // If we couldn't get decimals, use parseEther (which is parseUnits with 18 decimals)
+        const parsedAmount = ethers.utils.parseUnits(bountyData.amount, tokenDecimals);
+        console.log(`Parsed amount with ${tokenDecimals} decimals: ${parsedAmount.toString()}`);
+        
         // 6. Check user's token balance with fallback for non-standard tokens
         try {
           const balance = await tokenContract.balanceOf(account);
-          const amountWei = ethers.utils.parseEther(bountyData.amount);
           
-          if (balance.lt(amountWei)) {
+          if (balance.lt(parsedAmount)) {
             throw new Error(`Insufficient ${tokenSymbol} balance. You need at least ${bountyData.amount} ${tokenSymbol}`);
           }
           
@@ -210,7 +227,7 @@ const ProjectIssues = ({ account }) => {
           try {
             const allowance = await tokenContract.allowance(account, BOUNTY_CONTRACT_ADDRESS);
             
-            if (allowance.lt(amountWei)) {
+            if (allowance.lt(parsedAmount)) {
               // 8. Need to approve tokens first
               console.log(`Approving ${bountyData.amount} ${tokenSymbol} for the bounty contract...`);
               
@@ -241,6 +258,7 @@ const ProjectIssues = ({ account }) => {
       // 9. Now create the bounty
       console.log("Creating bounty with amount:", bountyData.amount, "and difficulty:", bountyData.difficultyLevel);
       
+      // Pass the Wei amount as a string to ensure it's handled correctly
       const response = await axios.post(
         `${OAUTH_SERVER_URL}/api/bounties/create`,
         {
@@ -249,6 +267,7 @@ const ProjectIssues = ({ account }) => {
           issueTitle: selectedIssue.title,
           issueUrl: selectedIssue.html_url,
           amount: bountyData.amount,
+          amountEth: bountyData.amount, // Also send the original ETH amount for reference
           difficultyLevel: bountyData.difficultyLevel,
           deadline: Math.floor(new Date(bountyData.deadline).getTime() / 1000),
           ownerAddress: account
@@ -273,7 +292,6 @@ const ProjectIssues = ({ account }) => {
       setCreatingBounty(false);
     }
   };
-
   // Function to format date
   const formatDate = (dateString) => {
     const options = { year: 'numeric', month: 'short', day: 'numeric' };
