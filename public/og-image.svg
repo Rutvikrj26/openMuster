@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- Background with gradient -->
+  <rect width="1200" height="630" fill="#4A56E2" />
+  <rect width="1200" height="630" fill="url(#grad)" />
+  
+  <!-- Gradient definition -->
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A56E2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6B46C1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- GitHub Icon -->
+  <path
+    d="M350 230C301.36 230 262 269.36 262 318c0 38.89 25.05 71.92 59.73 83.52 4.38 0.84 6.02-1.9 6.02-4.24 0-2.13-0.04-7.73-0.06-15.22-24.3 5.28-29.42-11.72-29.42-11.72-3.98-10.12-9.69-12.8-9.69-12.8-7.92-5.42 0.6-5.3 0.6-5.3 8.77 0.62 13.38 8.99 13.38 8.99 7.77 13.33 20.36 9.48 25.31 7.26 0.79-5.62 3.04-9.48 5.52-11.67-19.4-2.19-39.8-9.7-39.8-43.15 0-9.54 3.4-17.31 8.98-23.42-0.9-2.19-3.88-11.1 0.85-23.15 0 0 7.31-2.34 23.93 8.92 6.94-1.93 14.38-2.89 21.76-2.92 7.38 0.03 14.82 0.99 21.78 2.92 16.59-11.26 23.88-8.92 23.88-8.92 4.75 12.05 1.76 20.96 0.86 23.15 5.59 6.11 8.97 13.88 8.97 23.42 0 33.53-20.44 40.93-39.91 43.08 3.13 2.71 5.92 8.05 5.92 16.23 0 11.67-0.11 21.07-0.11 23.93 0 2.33 1.59 5.09 6.07 4.23C424.99 389.88 450 356.86 450 318c0-48.64-39.36-88-88-88z"
+    fill="white"
+  />
+  
+  <!-- Title Text -->
+  <text x="500" y="290" font-family="Inter, sans-serif" font-size="60" font-weight="bold" fill="white">GitHub Profile Score</text>
+  <text x="500" y="350" font-family="Inter, sans-serif" font-size="30" fill="white">Analyze and store GitHub profiles on the blockchain</text>
+  
+  <!-- Score Circle with gauge illustration -->
+  <circle cx="800" cy="430" r="60" fill="#2FCC71" />
+  <path
+    d="M790 400v30h30v10h-30v30h-10v-30h-30v-10h30v-30h10z"
+    fill="white"
+  />
+  
+  <!-- Decorative Elements -->
+  <circle cx="150" cy="150" r="80" fill="white" fill-opacity="0.1" />
+  <circle cx="1050" cy="520" r="60" fill="white" fill-opacity="0.1" />
+  <path d="M100 500 L200 600 L100 600 Z" fill="white" fill-opacity="0.1" />
+  <path d="M1000 100 L1100 200 L1100 100 Z" fill="white" fill-opacity="0.1" />
+</svg>
