@@ -315,7 +315,7 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
         <h2 className="text-lg font-semibold text-gray-800">Zero-Knowledge Proofs</h2>
       </div>
       
-      <p className="text-sm text-gray-600 mb-4">
+      <p className="text-sm text-gray-300 mb-4">
         Generate and verify multiple zero-knowledge proofs of your private repositories using zkVerify. 
         This allows your private data to be included in your score without revealing sensitive information.
       </p>
@@ -344,7 +344,7 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
           {state.status === 'initializing' && (
             <div className="p-4 text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
-              <p className="mt-2 text-gray-600">Initializing ZK proof system...</p>
+              <p className="mt-2 text-gray-300">Initializing ZK proof system...</p>
             </div>
           )}
           

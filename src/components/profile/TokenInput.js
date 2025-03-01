@@ -36,7 +36,7 @@ const TokenInput = ({
         </p>
       )}      
 
-      <p className="text-sm text-gray-600 mb-4">
+      <p className="text-sm text-gray-300 mb-4">
         Connect your GitHub account to include private repositories in your score calculation.
       </p>
       

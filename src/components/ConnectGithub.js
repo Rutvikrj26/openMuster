@@ -84,7 +84,7 @@ const ConnectGitHub = ({ account, contract, onVerificationSuccess }) => {
         
         <h1 className="text-2xl font-bold text-gray-800 mb-2 text-center">Connect Your GitHub Account</h1>
         
-        <p className="text-gray-600 mb-6 text-center">
+        <p className="text-gray-300 mb-6 text-center">
           To analyze your GitHub profile including private repositories, we need to verify that you own the account.
         </p>
         

@@ -48,7 +48,7 @@ const VerificationSuccess = ({ onVerificationComplete }) => {
         
         <h1 className="mt-4 text-2xl font-bold text-gray-800">GitHub Verification Successful!</h1>
         
-        <p className="mt-2 text-gray-600">
+        <p className="mt-2 text-gray-300">
           Your wallet has been successfully connected to GitHub username <strong>{username}</strong>.
         </p>
         

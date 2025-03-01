@@ -1,140 +1,148 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { FaGithub, FaWallet, FaBars, FaTimes } from 'react-icons/fa';
 
-const Navbar = ({ account, walletType, onDisconnect, username, verified }) => {
-  // Format address for display
-  const formatAddress = (address) => {
+const Navbar = ({ account, walletType, onDisconnect, username, verified, navItems = [] }) => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const location = useLocation();
+  
+  // Truncate Ethereum address for display
+  const truncateAddress = (address) => {
     if (!address) return '';
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
 
-  // Get wallet icon based on type
-  const getWalletIcon = () => {
-    switch(walletType) {
-      case 'ethereum':
-        return (
-          <svg 
-            className="h-4 w-4 text-green-300 inline mr-1" 
-            fill="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <path d="M11.944 17.97L4.58 13.62 11.943 24l7.37-10.38-7.372 4.35h.003zM12.056 0L4.69 12.223l7.365 4.354 7.365-4.35L12.056 0z" />
-          </svg>
-        );
-      case 'polkadot':
-        return (
-          <svg 
-            className="h-4 w-4 text-pink-300 inline mr-1" 
-            fill="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <circle cx="12" cy="12" r="12" />
-          </svg>
-        );
-      default:
-        return (
-          <svg 
-            className="h-4 w-4 text-green-300 inline mr-1" 
-            fill="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <circle cx="12" cy="12" r="4" />
-          </svg>
-        );
-    }
-  };
-
   return (
-    <nav className="bg-gradient-to-r from-blue-600 to-purple-600 shadow-md">
-      <div className="container mx-auto px-4">
-        <div className="flex justify-between items-center py-4">
-          {/* Logo and App name */}
-          <Link to="/" className="flex items-center">
-            <svg 
-              className="h-8 w-8 text-white mr-2" 
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" 
-              />
-            </svg>
-            <span className="text-white font-bold text-xl">GitHub Profile Score</span>
-          </Link>
+<nav className="bg-white border-b border-gray-200 py-4 px-6 shadow-sm">
+  <div className="container mx-auto flex justify-between items-center">
+    {/* Logo and site name */}
+    <div className="flex items-center space-x-2">
+      <Link to="/" className="flex items-center">
+        <FaGithub className="text-gray-900 text-2xl mr-2" />
+        <span className="text-xl font-bold text-gray-900">Muster</span>
+      </Link>
+    </div>
+
+    {/* Desktop Navigation Links */}
+    <div className="hidden md:flex items-center space-x-8">
+      {navItems.map((item, index) => (
+        <Link 
+          key={index}
+          to={item.path}
+          className={`text-sm font-medium transition-colors 
+            ${location.pathname === item.path 
+              ? 'text-indigo-600 border-b-2 border-indigo-600 pb-1' 
+              : 'text-gray-600 hover:text-indigo-600'}`}
+        >
+          {item.label}
+        </Link>
+      ))}
+    </div>
+    
+    {/* Wallet Status */}
+    <div className="hidden md:flex items-center space-x-4">
+      {account ? (
+        <div className="flex items-center">
+          {/* Verification badge */}
+          {verified && (
+            <div className="flex items-center mr-4 bg-gray-100 rounded-full py-1 px-3">
+              <FaGithub className="text-gray-700 mr-2" />
+              <span className="text-sm text-gray-700">{username}</span>
+            </div>
+          )}
           
-          {/* Navigation Links */}
-          <div className="hidden md:flex items-center space-x-6">
-            {account && (
-              <>
-                {verified && username ? (
-                  <Link 
-                    to={`/results/${username}`} 
-                    className="text-white hover:text-blue-100"
-                  >
-                    My Profile
-                  </Link>
-                ) : (
-                  <Link 
-                    to="/connect-github" 
-                    className="text-white hover:text-blue-100"
-                  >
-                    Connect GitHub
-                  </Link>
-                )}
-                <Link 
-                  to="/analyze" 
-                  className="text-white hover:text-blue-100"
-                >
-                  Analyze Profile
-                </Link>
-              </>
-            )}
+          {/* Wallet info */}
+          <div className="flex items-center bg-gray-100 rounded-full py-1 px-3">
+            <FaWallet className="text-gray-700 mr-2" />
+            <span className="text-sm text-gray-700">{truncateAddress(account)}</span>
           </div>
           
-          {/* Wallet connection info */}
-          <div className="flex items-center">
-            {account ? (
-              <div className="flex items-center">
-                {/* GitHub username if verified */}
-                {verified && username && (
-                  <Link 
-                    to={`/results/${username}`} 
-                    className="mr-4 flex items-center"
-                  >
-                    <span className="bg-green-500 text-white text-xs px-2 py-0.5 rounded-full mr-2">Verified</span>
-                    <span className="text-white font-medium hover:text-blue-100 transition-colors">
-                      @{username}
-                    </span>
-                  </Link>
-                )}
-                
-                {/* Wallet Address with wallet type indicator */}
-                <span className="text-white mr-3 flex items-center">
-                  {getWalletIcon()}
-                  <span className="mr-1">{formatAddress(account)}</span>
-                  <span className="text-xs bg-black bg-opacity-20 px-1.5 py-0.5 rounded">
-                    {walletType === 'ethereum' ? 'ETH' : walletType === 'polkadot' ? 'DOT' : 'Wallet'}
-                  </span>
-                </span>
-                
-                {/* Disconnect Button */}
-                <button 
-                  onClick={onDisconnect}
-                  className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-medium py-1 px-3 rounded-md text-sm transition duration-300"
-                >
-                  Disconnect
-                </button>
-              </div>
+          {/* Disconnect button */}
+          <button 
+            onClick={onDisconnect}
+            className="ml-2 text-sm text-gray-600 hover:text-indigo-600 transition-colors"
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <Link 
+          to="/" 
+          className="bg-indigo-600 text-white font-medium rounded-full py-2 px-4 hover:bg-indigo-700 transition-colors"
+        >
+          Connect Wallet
+        </Link>
+      )}
+    </div>
+        
+        {/* Mobile menu button */}
+        <div className="md:hidden">
+          <button 
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="text-white focus:outline-none"
+          >
+            {isMenuOpen ? (
+              <FaTimes className="h-6 w-6" />
             ) : (
-              <span className="text-white opacity-75">Not Connected</span>
+              <FaBars className="h-6 w-6" />
             )}
-          </div>
+          </button>
         </div>
       </div>
+      
+      {/* Mobile Menu */}
+      {isMenuOpen && (
+        <div className="md:hidden bg-black border-t border-gray-800 mt-4 pt-2 pb-4 px-6">
+          {/* Nav Links */}
+          <div className="space-y-4 mb-6">
+            {navItems.map((item, index) => (
+              <Link 
+                key={index}
+                to={item.path}
+                className={`block text-base font-medium
+                  ${location.pathname === item.path 
+                    ? 'text-white' 
+                    : 'text-gray-400 hover:text-white'}`}
+                onClick={() => setIsMenuOpen(false)}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          
+          {/* Wallet Status on Mobile */}
+          {account ? (
+            <div className="space-y-3">
+              {verified && (
+                <div className="flex items-center bg-gray-800 rounded-md p-2">
+                  <FaGithub className="text-white mr-2" />
+                  <span className="text-sm text-white">{username}</span>
+                </div>
+              )}
+              
+              <div className="flex items-center bg-gray-800 rounded-md p-2">
+                <FaWallet className="text-white mr-2" />
+                <span className="text-sm text-white">{truncateAddress(account)}</span>
+              </div>
+              
+              <button 
+                onClick={onDisconnect}
+                className="w-full text-sm text-center py-2 text-gray-400 border border-gray-800 rounded-md hover:text-white transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <Link 
+              to="/" 
+              className="block w-full text-center bg-white text-black font-medium rounded-md py-2 hover:bg-gray-200 transition-colors"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Connect Wallet
+            </Link>
+          )}
+        </div>
+      )}
     </nav>
   );
 };

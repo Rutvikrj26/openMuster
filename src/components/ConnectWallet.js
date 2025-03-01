@@ -155,7 +155,7 @@ const ConnectWallet = ({ onConnect }) => {
         
         <h1 className="text-2xl font-bold text-gray-800 mb-2">Connect Your Wallet</h1>
         
-        <p className="text-gray-600 mb-6">
+        <p className="text-gray-300 mb-6">
           Connect your wallet to analyze GitHub profiles and store results on the blockchain.
         </p>
         
@@ -201,7 +201,7 @@ const ConnectWallet = ({ onConnect }) => {
           <div className="mt-8 border-t pt-4 text-left">
             <details>
               <summary className="cursor-pointer text-xs text-gray-500">Debug Info</summary>
-              <div className="mt-2 text-xs text-gray-600 bg-gray-50 p-3 rounded overflow-auto max-h-40">
+              <div className="mt-2 text-xs text-gray-300 bg-gray-50 p-3 rounded overflow-auto max-h-40">
                 <p>ethereum available: {window.ethereum ? 'Yes' : 'No'}</p>
                 <p>injectedWeb3 available: {window.injectedWeb3 ? 'Yes' : 'No'}</p>
               </div>
@@ -210,7 +210,7 @@ const ConnectWallet = ({ onConnect }) => {
         )}
       </div>
       
-      <div className="mt-8 text-center text-gray-600 max-w-md">
+      <div className="mt-8 text-center text-gray-300 max-w-md">
         <h2 className="font-semibold text-lg mb-2">Why Connect a Wallet?</h2>
         <p>
           Your wallet allows you to interact with the blockchain to store and retrieve

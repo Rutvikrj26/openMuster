@@ -19,7 +19,7 @@ const ErrorState = ({ error }) => {
           />
         </svg>
         <h2 className="text-xl font-bold text-gray-800 mt-4">{error}</h2>
-        <p className="text-gray-600 mt-2">The requested profile could not be found on the blockchain.</p>
+        <p className="text-gray-300 mt-2">The requested profile could not be found on the blockchain.</p>
         <Link 
           to="/analyze" 
           className="mt-6 inline-flex items-center px-4 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"

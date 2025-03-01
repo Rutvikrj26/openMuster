@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ethers } from 'ethers';
 
+import OpenSourceBountyABI from './abis/OpenSourceBounty.json'; // Make sure this file exists
+import GitHubProfileScoreOAuthABI from './abis/GitHubProfileScoreOAuth.json'; // Make sure this file exists
+
 // Components
 import ConnectWallet from './components/ConnectWallet';
 import ConnectGitHub from './components/ConnectGithub';
@@ -10,6 +13,11 @@ import ProfileResults from './components/ProfileResults';
 import VerificationSuccess from './components/VerificationSuccess';
 import VerificationFailed from './components/VerificationFailed';
 import Navbar from './components/Navbar';
+import ContributorDashboard from './components/ContributorDashboard';
+import ExploreBounties from './components/ExploreBounties';
+import BountyDetail from './components/BountyDetail';
+import ProjectOnboarding from './components/ProjectOnboarding';
+import BountyList from './components/BountyList';
 
 // Contract ABI
 import { CONTRACT_ABI } from './constants/contractAbi';
@@ -30,9 +38,14 @@ function App() {
     checking: false  // Changed from true to false to prevent loading screen hanging
   });
   
+  const [bountyContract, setBountyContract] = useState(null);
+  const [profileContract, setProfileContract] = useState(null);
+
   // Contract config
   const contractAddress = process.env.REACT_APP_CONTRACT_ADDRESS;
-  
+  const bountyContractAddress = process.env.REACT_APP_BOUNTY_CONTRACT_ADDRESS || process.env.BOUNTY_CONTRACT_ADDRESS;
+  const profileContractAddress = process.env.REACT_APP_ZK_CONTRACT_ADDRESS;
+
   // Initialize provider and check if wallet is already connected
   useEffect(() => {
     const init = async () => {
@@ -46,7 +59,7 @@ function App() {
           // Create ethers provider
           const provider = new ethers.providers.Web3Provider(window.ethereum);
           setProvider(provider);
-          
+
           // Check if we have accounts without requesting new access
           const accounts = await provider.listAccounts();
           
@@ -56,7 +69,7 @@ function App() {
             const signer = provider.getSigner();
             setSigner(signer);
             
-            // Initialize contract
+            // Initialize main contract
             if (contractAddress) {
               try {
                 const contract = new ethers.Contract(
@@ -73,6 +86,36 @@ function App() {
                 // Continue without contract
               }
             }
+            
+            // Initialize bounty contract
+            if (bountyContractAddress) {
+              try {
+                const bContract = new ethers.Contract(
+                  bountyContractAddress,
+                  OpenSourceBountyABI.abi || OpenSourceBountyABI,
+                  signer
+                );
+                setBountyContract(bContract);
+                console.log("Bounty contract initialized");
+              } catch (error) {
+                console.error("Bounty contract initialization error:", error);
+              }
+            }
+            
+            // Initialize profile contract
+            if (profileContractAddress) {
+              try {
+                const pContract = new ethers.Contract(
+                  profileContractAddress,
+                  GitHubProfileScoreOAuthABI.abi || GitHubProfileScoreOAuthABI,
+                  signer
+                );
+                setProfileContract(pContract);
+                console.log("Profile contract initialized");
+              } catch (error) {
+                console.error("Profile contract initialization error:", error);
+              }
+            }
           }
         }
       } catch (error) {
@@ -84,7 +127,7 @@ function App() {
     };
     
     init();
-  }, [contractAddress]);
+  }, [contractAddress, bountyContractAddress, profileContractAddress]);
   
   // Function to check GitHub verification status
   const checkGitHubVerification = async (contract, address) => {
@@ -106,7 +149,7 @@ function App() {
       setVerificationStatus({ verified: false, checking: false });
     }
   };
-  
+
   // Function to connect wallet
   const connectWallet = async (address, walletType, walletProvider) => {
     if (!address || !walletProvider) {
@@ -128,7 +171,7 @@ function App() {
         const signer = provider.getSigner();
         setSigner(signer);
         
-        // Initialize contract
+        // Initialize main contract
         if (contractAddress) {
           try {
             const contract = new ethers.Contract(
@@ -145,6 +188,37 @@ function App() {
             // Continue without contract
           }
         }
+        
+        // Initialize bounty contract
+        if (bountyContractAddress) {
+          try {
+            const bContract = new ethers.Contract(
+              bountyContractAddress,
+              OpenSourceBountyABI.abi || OpenSourceBountyABI,
+              signer
+            );
+            setBountyContract(bContract);
+            console.log("Bounty contract initialized");
+          } catch (error) {
+            console.error("Bounty contract initialization error:", error);
+          }
+        }
+        
+        // Initialize profile contract
+        if (profileContractAddress) {
+          try {
+            const pContract = new ethers.Contract(
+              profileContractAddress,
+              GitHubProfileScoreOAuthABI.abi || GitHubProfileScoreOAuthABI,
+              signer
+            );
+            setProfileContract(pContract);
+            console.log("Profile contract initialized");
+          } catch (error) {
+            console.error("Profile contract initialization error:", error);
+          }
+        }
+        
       } else if (walletType === 'polkadot') {
         // Basic Polkadot wallet handling for now
         setAccount(address);
@@ -165,6 +239,8 @@ function App() {
     setAccount(null);
     setSigner(null);
     setContract(null);
+    setBountyContract(null);
+    setProfileContract(null);
     setVerifiedUsername(null);
     setVerificationStatus({ verified: false, checking: false });
     setWalletType('ethereum'); // Reset to default
@@ -207,6 +283,34 @@ function App() {
                 console.error("Contract reinitialization error:", error);
               }
             }
+            
+            // Reinitialize bounty contract
+            if (bountyContractAddress) {
+              try {
+                const bContract = new ethers.Contract(
+                  bountyContractAddress,
+                  OpenSourceBountyABI.abi || OpenSourceBountyABI,
+                  ethSigner
+                );
+                setBountyContract(bContract);
+              } catch (error) {
+                console.error("Bounty contract reinitialization error:", error);
+              }
+            }
+            
+            // Reinitialize profile contract
+            if (profileContractAddress) {
+              try {
+                const pContract = new ethers.Contract(
+                  profileContractAddress,
+                  GitHubProfileScoreOAuthABI.abi || GitHubProfileScoreOAuthABI,
+                  ethSigner
+                );
+                setProfileContract(pContract);
+              } catch (error) {
+                console.error("Profile contract reinitialization error:", error);
+              }
+            }
           }
         } else {
           // User disconnected all accounts
@@ -228,15 +332,14 @@ function App() {
         window.ethereum.removeListener('chainChanged', handleChainChanged);
       };
     }
-  }, [contractAddress, provider, walletType]);
+  }, [contractAddress, bountyContractAddress, profileContractAddress, provider, walletType]);
   
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
           <p className="mt-4 text-gray-700">Loading application...</p>
-          {/* Add a timeout message after a few seconds */}
           <p className="mt-2 text-sm text-gray-500">
             If loading takes too long, try refreshing the page.
           </p>
@@ -244,16 +347,21 @@ function App() {
       </div>
     );
   }
-  
+
   return (
     <Router>
-      <div className="min-h-screen bg-gray-100">
+      <div className="min-h-screen bg-gray-50 text-gray-900">
         <Navbar 
           account={account} 
           walletType={walletType}
           onDisconnect={disconnectWallet}
           username={verifiedUsername}
           verified={verificationStatus.verified}
+          navItems={[
+            { label: 'Explore Bounties', path: '/explore-bounties' },
+            { label: 'Contributor Dashboard', path: '/contributor-dashboard' },
+            { label: 'Create Project', path: '/project-onboarding' }
+          ]}
         />
         
         <main className="container mx-auto px-4 py-8">
@@ -293,7 +401,7 @@ function App() {
                 )
               } 
             />
-            
+
             {/* Manual username input (for public data only) */}
             <Route 
               path="/analyze" 
@@ -328,6 +436,44 @@ function App() {
                 )
               } 
             />
+            <Route path="/contributor-dashboard" element={
+              <ContributorDashboard 
+                account={account} 
+                contract={bountyContract} 
+                profileContract={profileContract} 
+              />
+            } />
+
+            <Route path="/explore-bounties" element={
+              <ExploreBounties 
+                account={account} 
+                contract={bountyContract} 
+                profileContract={profileContract} 
+              />
+            } />
+
+            <Route path="/bounties/:projectId/:issueId" element={
+              <BountyDetail 
+                account={account} 
+                contract={bountyContract} 
+                profileContract={profileContract} 
+              />
+            } />
+
+            <Route path="/projects/:projectId/bounties" element={
+              <BountyList 
+                account={account} 
+                contract={bountyContract} 
+              />
+            } />
+
+            <Route path="/project-onboarding" element={
+              <ProjectOnboarding 
+                account={account} 
+                contract={bountyContract}
+                profileContract={profileContract} 
+              />
+            } />
             
             {/* GitHub OAuth callback routes */}
             <Route 
@@ -356,7 +502,7 @@ function App() {
           </Routes>
         </main>
         
-        <footer className="py-6 text-center text-gray-500 text-sm">
+        <footer className="py-6 text-center text-gray-400 text-sm border-t border-gray-800">
           <p>© {new Date().getFullYear()} GitHub Profile Score - Web3 App</p>
         </footer>
       </div>

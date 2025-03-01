@@ -312,7 +312,7 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
           )}
         </div>
         
-        <p className="mt-2 text-sm text-gray-600">
+        <p className="mt-2 text-sm text-gray-300">
           Generate ZK proofs to include your private repository data without revealing sensitive information.
           These proofs are verified on the zkVerify blockchain to maintain data privacy.
         </p>
@@ -338,7 +338,7 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
                 ></div>
               </div>
             </div>
-            <div className="mt-2 flex justify-between text-xs text-gray-600">
+            <div className="mt-2 flex justify-between text-xs text-gray-300">
               <span>
                 {status === 'generating' ? 'Generating Proofs' : 
                  status === 'verifying' ? 'Verifying on zkVerify' : 
@@ -355,7 +355,7 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
               </div>
               <div>
                 <div className="font-medium text-gray-800">{currentProof.name}</div>
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-gray-300">
                   {status === 'generating' ? 'Generating proof...' : 'Verifying on zkVerify blockchain...'}
                 </div>
               </div>
@@ -495,7 +495,7 @@ const ZKDashboard = ({ privateRepoData, contract, account, username, onProofsGen
                   {proofType.icon(`h-5 w-5 text-${proofType.color}-500 mr-2`)}
                   <span className="font-medium text-gray-800">{proofType.name}</span>
                 </div>
-                <p className="mt-1 text-xs text-gray-600">{proofType.description}</p>
+                <p className="mt-1 text-xs text-gray-300">{proofType.description}</p>
               </div>
             ))}
           </div>

@@ -1,0 +1,7 @@
+{
+  "network": "base_sepolia",
+  "bountyContract": "0x959DBbfd4a4c07b74c6C62bA72e65a63A55d615f",
+  "profileScoreContract": "0x92856C48BA1903886aF3f761a257A8D6f1B35E5f",
+  "paymentToken": "0x477140903Bd2fcC4F513e621bbE3f7182ba8dacb",
+  "deploymentTime": "2025-03-01T12:22:28.120Z"
+}
