@@ -10,7 +10,16 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Encryption key for tokens (generate a secure one for production)
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+if (!ENCRYPTION_KEY) {
+  console.error('⚠️ WARNING: ENCRYPTION_KEY environment variable is not set!');
+  console.error('This will cause authentication issues when the server restarts.');
+  console.error('Set a fixed ENCRYPTION_KEY in your .env file for production.');
+}
+
+// Generate a temporary key if none is provided (development only)
+const encryptionKey = ENCRYPTION_KEY || 
+                     '2fbd59bdc2f792bbfe21954e605896fcc7d1ef8af75affb6ff1b170ccdf23657'; // Default fallback key
 const IV_LENGTH = 16; // For AES, this is always 16
 
 // Middleware
@@ -29,6 +38,7 @@ const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || 'http://localhost
 // Blockchain connection (for blockchain verification)
 const provider = new ethers.providers.JsonRpcProvider(process.env.RPC_URL || 'https://sepolia.base.org');
 const contractABI = require('./contractABI.json');
+const bountyContractABI = require('./BountycontractABI.json');
 const contractAddress = process.env.CONTRACT_ADDRESS;
 
 // Only setup wallet and contract if private key is provided
@@ -41,11 +51,16 @@ if (process.env.PRIVATE_KEY) {
 // In-memory storage (replace with database in production)
 const pendingVerifications = new Map();
 
-// Token encryption/decryption functions
+// Update the encryption function to use the stable key
+
 function encryptToken(text) {
   try {
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
+    const cipher = crypto.createCipheriv(
+      'aes-256-cbc', 
+      Buffer.from(encryptionKey, 'hex'), // Use the stable key
+      iv
+    );
     let encrypted = cipher.update(text);
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     return iv.toString('hex') + ':' + encrypted.toString('hex');
@@ -57,19 +72,43 @@ function encryptToken(text) {
 
 function decryptToken(text) {
   try {
+    if (!text || typeof text !== 'string' || !text.includes(':')) {
+      console.log('Invalid encrypted token format');
+      return null;
+    }
+    
     const textParts = text.split(':');
+    if (textParts.length < 2) {
+      console.log('Encrypted token missing IV or data');
+      return null;
+    }
+    
     const iv = Buffer.from(textParts.shift(), 'hex');
     const encryptedText = Buffer.from(textParts.join(':'), 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
+    
+    // Ensure IV is correct length
+    if (iv.length !== IV_LENGTH) {
+      console.log(`Invalid IV length: ${iv.length}, expected: ${IV_LENGTH}`);
+      return null;
+    }
+    
+    const decipher = crypto.createDecipheriv(
+      'aes-256-cbc', 
+      Buffer.from(encryptionKey, 'hex'), // Use the stable key
+      iv
+    );
+    
     let decrypted = decipher.update(encryptedText);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
     return decrypted.toString();
   } catch (error) {
+    // Add more debug info for decryption errors
     console.error('Decryption error:', error);
+    console.log('Encrypted text:', text);
+    console.log('Key length:', encryptionKey.length);
     return null;
   }
 }
-
 // Route to initiate OAuth flow
 app.get('/api/auth/github', (req, res) => {
   const { wallet: walletAddress, redirect: redirectPath } = req.query;
@@ -388,6 +427,220 @@ app.get('/api/verify/status/:wallet', async (req, res) => {
   } catch (error) {
     console.error('Error checking verification status:', error);
     res.status(500).json({ error: 'Failed to check verification status' });
+  }
+});
+
+// Add after the existing endpoints, before the server startup code
+
+// Projects-related API endpoints
+app.post('/api/projects/register', async (req, res) => {
+  const { 
+    name, 
+    description, 
+    website, 
+    githubUrl, 
+    repositoryId, 
+    repositoryName, 
+    ownerAddress 
+  } = req.body;
+  
+  // Validate required fields
+  if (!name || !githubUrl || !repositoryId || !ownerAddress || !repositoryName) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Missing required fields' 
+    });
+  }
+  
+  // Validate wallet address
+  if (!ethers.utils.isAddress(ownerAddress)) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid wallet address' 
+    });
+  }
+  
+  try {
+    // Get the bounty contract ABI and address
+    const bountyContractAddress = process.env.BOUNTY_CONTRACT_ADDRESS;
+    
+    if (!bountyContractAddress) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Bounty contract not configured' 
+      });
+    }
+    
+    // Connect to the bounty contract
+    const bountyContract = new ethers.Contract(
+      bountyContractAddress, 
+      bountyContractABI, 
+      wallet
+    );
+    
+    console.log(`Registering project "${name}" for wallet ${ownerAddress}`);
+    console.log(`Repository: ${repositoryName} (ID: ${repositoryId})`);
+    
+    // Submit transaction to register project on-chain
+    const tx = await bountyContract.registerProject(
+      name,
+      description || '',
+      website || '',
+      githubUrl,
+      repositoryName,
+      repositoryId
+    );
+    
+    console.log(`Transaction submitted with hash: ${tx.hash}`);
+    
+    // Wait for transaction confirmation
+    const receipt = await tx.wait();
+    console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
+    
+    // Extract project ID from the event
+    const projectRegisteredEvent = receipt.events?.find(e => e.event === 'ProjectRegistered');
+    const projectId = projectRegisteredEvent?.args?.projectId.toString() || '0';
+    
+    console.log(`Project registered with ID: ${projectId}`);
+    
+    // Return success response with project ID
+    res.json({
+      success: true,
+      projectId,
+      txHash: tx.hash
+    });
+    
+  } catch (error) {
+    console.error('Error registering project:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to register project' 
+    });
+  }
+});
+
+// API to fetch projects by user/owner
+app.get('/api/projects/user/:address', async (req, res) => {
+  const { address } = req.params;
+  
+  if (!ethers.utils.isAddress(address)) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid wallet address' 
+    });
+  }
+  
+  try {
+    const bountyContractAddress = process.env.BOUNTY_CONTRACT_ADDRESS;
+    const bountyContractABI = require('./bountyContractABI.json');
+    
+    if (!bountyContractAddress) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Bounty contract not configured' 
+      });
+    }
+    
+    // Connect to the bounty contract
+    const bountyContract = new ethers.Contract(
+      bountyContractAddress, 
+      bountyContractABI, 
+      provider
+    );
+    
+    // Get project IDs owned by this address
+    const projectIds = await bountyContract.getProjectsByOwner(address);
+    
+    // Fetch details for each project
+    const projects = [];
+    for (const id of projectIds) {
+      const projectData = await bountyContract.getProject(id);
+      
+      if (projectData.exists) {
+        projects.push({
+          id: projectData.id.toString(),
+          name: projectData.name,
+          description: projectData.description,
+          website: projectData.website,
+          githubUrl: projectData.githubUrl,
+          repositoryName: projectData.repoName,
+          repositoryId: projectData.repoId.toString(),
+          ownerAddress: projectData.owner,
+          createdAt: new Date(projectData.timestamp.toNumber() * 1000).toISOString()
+        });
+      }
+    }
+    
+    res.json({
+      success: true,
+      projects
+    });
+    
+  } catch (error) {
+    console.error('Error fetching user projects:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to fetch projects' 
+    });
+  }
+});
+
+// API to get a specific project by ID
+app.get('/api/projects/:id', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const bountyContractAddress = process.env.BOUNTY_CONTRACT_ADDRESS;
+    const bountyContractABI = require('./bountyContractABI.json');
+    
+    if (!bountyContractAddress) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Bounty contract not configured' 
+      });
+    }
+    
+    // Connect to the bounty contract
+    const bountyContract = new ethers.Contract(
+      bountyContractAddress, 
+      bountyContractABI, 
+      provider
+    );
+    
+    // Get project data
+    const projectData = await bountyContract.getProject(id);
+    
+    if (!projectData.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      });
+    }
+    
+    const project = {
+      id: projectData.id.toString(),
+      name: projectData.name,
+      description: projectData.description,
+      website: projectData.website,
+      githubUrl: projectData.githubUrl,
+      repositoryOwner: projectData.githubUrl.split('/').slice(-2)[0],
+      repositoryName: projectData.repoName,
+      repositoryId: projectData.repoId.toString(),
+      ownerAddress: projectData.owner,
+      createdAt: new Date(projectData.timestamp.toNumber() * 1000).toISOString()
+    };
+    
+    res.json({
+      success: true,
+      project
+    });
+    
+  } catch (error) {
+    console.error('Error fetching project:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to fetch project' 
+    });
   }
 });
 

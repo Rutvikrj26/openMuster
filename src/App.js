@@ -440,7 +440,7 @@ function App() {
               <ContributorDashboard 
                 account={account} 
                 contract={bountyContract} 
-                profileContract={profileContract} 
+                profileContract={contract} 
               />
             } />
 
@@ -448,7 +448,7 @@ function App() {
               <ExploreBounties 
                 account={account} 
                 contract={bountyContract} 
-                profileContract={profileContract} 
+                profileContract={contract} 
               />
             } />
 
@@ -471,7 +471,7 @@ function App() {
               <ProjectOnboarding 
                 account={account} 
                 contract={bountyContract}
-                profileContract={profileContract} 
+                profileContract={contract} 
               />
             } />
             

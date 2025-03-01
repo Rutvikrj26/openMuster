@@ -18,27 +18,46 @@ const ProjectOnboarding = ({ account, contract, profileContract }) => {
   const navigate = useNavigate();
 
   // Check if already connected to GitHub
-  useEffect(() => {
-    if (account && contract) {
-      checkGitHubConnection();
-    }
-  }, [account, contract]);
-
+// Check if already connected to GitHub
+useEffect(() => {
+  console.log("useEffect triggered");
+  console.log("account:", account);
+  console.log("contract:", !!contract);
+  console.log("profileContract:", !!profileContract);
+  
+  if (account && profileContract) { // Changed from contract to profileContract
+    console.log("Calling checkGitHubConnection from useEffect");
+    checkGitHubConnection();
+  }
+}, [account, contract, profileContract]); // Added profileContract dependency
   const checkGitHubConnection = async () => {
     try {
       // Check if user has a verified GitHub connection
+      console.log("Checking GitHub connection...");
+      console.log("profileContract:", !!profileContract);
+      console.log("account:", account);
+      
       if (profileContract && account) {
+        console.log("Getting wallet GitHub info...");
         const [username, verified, timestamp] = await profileContract.getWalletGitHubInfo(account);
+        console.log("GitHub info returned:", { username, verified: !!verified, timestamp });
+        
         if (verified && username) {
           // If already connected, check for repositories
+          console.log("GitHub is verified, fetching repositories for:", username);
           fetchUserRepositories(username);
           setStep(2); // Move to GitHub repo selection step
+        } else {
+          console.log("GitHub not verified or no username");
         }
+      } else {
+        console.log("Missing profileContract or account");
       }
     } catch (error) {
       console.error('Error checking GitHub connection:', error);
     }
   };
+  
 
   const fetchUserRepositories = async (username) => {
     try {
@@ -111,16 +130,25 @@ const ProjectOnboarding = ({ account, contract, profileContract }) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // If we already have a GitHub connection, go straight to repo selection
+      console.log("Checking GitHub in connectToOkto...");
+      console.log("profileContract exists:", !!profileContract);
+      
       if (profileContract) {
-        const [username, verified] = await profileContract.getWalletGitHubInfo(account);
+        console.log("Getting wallet GitHub info in connectToOkto...");
+        const [username, verified, timestamp] = await profileContract.getWalletGitHubInfo(account);
+        console.log("GitHub info in connectToOkto:", { username, verified: !!verified, timestamp });
+        
         if (verified && username) {
+          console.log("GitHub is verified in connectToOkto, moving to step 2");
           await fetchUserRepositories(username);
-          setStep(1.5);
+          setStep(2);
         } else {
+          console.log("GitHub not verified in connectToOkto");
           // Otherwise go to GitHub connection
           setStep(1.5); // Between step 1 and 2 - need to connect GitHub
         }
       } else {
+        console.log("No profileContract in connectToOkto");
         setStep(1.5);
       }
       
@@ -131,7 +159,6 @@ const ProjectOnboarding = ({ account, contract, profileContract }) => {
       setLoading(false);
     }
   };
-
   const connectToGitHub = () => {
     // We'll use the existing GitHub connection flow
     // Redirect to the GitHub connection page
