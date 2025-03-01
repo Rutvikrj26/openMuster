@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ethers } from 'ethers';
 import { FaGithub, FaArrowLeft, FaStar, FaCode, FaUserAlt } from 'react-icons/fa';
 import { marked } from 'marked';
+import { formatTokenAmount, calculateEligibleAmount } from '../utils/ethersUtils';
 
 const BountyDetail = ({ account, contract, profileContract }) => {
   const { projectId, issueId } = useParams();
@@ -14,32 +14,15 @@ const BountyDetail = ({ account, contract, profileContract }) => {
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
 
-  // Calculate bounty amount based on profile score
-  const calculateEligibleAmount = (score, totalAmount) => {
-    if (!score) return { amount: 10, percentage: "10%" };
-    
-    const scoreRanges = [
-      { min: 0, max: 20, amount: 10, percentage: "10%" },
-      { min: 20, max: 40, amount: 20, percentage: "20%" },
-      { min: 40, max: 60, amount: 40, percentage: "40%" },
-      { min: 60, max: 80, amount: 60, percentage: "60%" },
-      { min: 80, max: 100, amount: Number(totalAmount), percentage: "100%" }
-    ];
-    
-    const range = scoreRanges.find(range => score >= range.min && score <= range.max);
-    return range || { amount: 10, percentage: "10%" };
-  };
-  
-  // Fetch bounty data and issue details
   useEffect(() => {
-    const fetchData = async () => {
-      if (!contract || !projectId || !issueId) return;
-      
-      setLoading(true);
-      setError('');
-      
-      try {
-        // Fetch bounty details from smart contract
+    if (!contract || !projectId || !issueId) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      // Fetch bounty details from smart contract
+      const fetchBountyDetails = async () => {
         const bountyData = await contract.getBountyByProjectAndIssue(projectId, issueId);
         
         if (!bountyData || !bountyData.exists) {
@@ -50,7 +33,7 @@ const BountyDetail = ({ account, contract, profileContract }) => {
         
         // Format bounty data
         const formattedBounty = {
-          amount: ethers.utils.formatUnits(bountyData.amount, 18),
+          amount: bountyData.amount, // Keep as BigNumber for now
           status: getBountyStatusString(bountyData.status),
           assignee: bountyData.assignee,
           difficultyLevel: bountyData.difficultyLevel,
@@ -109,20 +92,14 @@ const BountyDetail = ({ account, contract, profileContract }) => {
         }
         
         setLoading(false);
-      } catch (err) {
-        console.error('Error fetching bounty details:', err);
-        setError(`Failed to fetch bounty details: ${err.message}`);
-        setLoading(false);
-      }
-    };
+      };
 
-    // Helper function to convert numeric status to string
-    const getBountyStatusString = (statusCode) => {
-        const statuses = ['OPEN', 'ASSIGNED', 'SUBMITTED', 'COMPLETED', 'CANCELLED'];
-        return statuses[statusCode] || 'UNKNOWN';
-    };    
-
-    fetchData();
+      fetchBountyDetails();
+    } catch (err) {
+      console.error('Error fetching bounty details:', err);
+      setError(`Failed to fetch bounty details: ${err.message}`);
+      setLoading(false);
+    }
   }, [contract, projectId, issueId, account, profileContract]);
 
 
@@ -139,7 +116,7 @@ const BountyDetail = ({ account, contract, profileContract }) => {
       const bountyData = await contract.getBountyByProjectAndIssue(projectId, issueId);
       setBounty({
         ...bounty,
-        status: bountyData.status,
+        status: getBountyStatusString(bountyData.status),
         assignee: bountyData.assignee
       });
     } catch (err) {
@@ -147,6 +124,12 @@ const BountyDetail = ({ account, contract, profileContract }) => {
       alert(`Failed to apply for bounty: ${err.message}`);
     }
     setApplying(false);
+  };
+  
+  // Helper function to convert numeric status to string
+  const getBountyStatusString = (statusCode) => {
+    const statuses = ['OPEN', 'ASSIGNED', 'SUBMITTED', 'COMPLETED', 'CANCELLED'];
+    return statuses[statusCode] || 'UNKNOWN';
   };
   
   // Render markdown content safely
@@ -242,8 +225,7 @@ const BountyDetail = ({ account, contract, profileContract }) => {
           <h2 className="text-lg font-semibold text-blue-800">Bounty Reward</h2>
           <div className="mt-3 flex justify-between items-center">
             <div>
-              <span className="text-3xl font-bold text-blue-700">{bounty.amount}</span>
-              <span className="text-blue-700 ml-1">Tokens</span>
+              <span className="text-3xl font-bold text-blue-700">{formatTokenAmount(bounty.amount)}</span>
               
               {profileScore !== null && (
                 <div className="mt-1 text-sm text-blue-600">

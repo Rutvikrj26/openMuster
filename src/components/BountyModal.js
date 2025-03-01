@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { ethers } from 'ethers';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -91,8 +90,6 @@ const BountyModal = ({ isOpen, onClose, onSubmit, issue, isSubmitting, projectId
       return;
     }
     
-    // Important: Pass the raw amount value as a string
-    // The conversion to wei will be handled in the parent component
     onSubmit({ 
       amount: amount.toString(),
       deadline,

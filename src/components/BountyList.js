@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import BountyCreationModal from './BountyCreationModal';
 import { FaGithub, FaTag, FaLock, FaLockOpen, FaUsers, FaStar } from 'react-icons/fa';
+import { formatTokenAmount } from '../utils/ethersUtils';
 
 const BountyList = ({ account, contract, projectId, repositoryUrl }) => {
   const [issues, setIssues] = useState([]);
@@ -95,7 +96,7 @@ const BountyList = ({ account, contract, projectId, repositoryUrl }) => {
           
           if (bountyDetails && bountyDetails.exists) {
             bountyMap[issueNumber] = {
-              amount: ethers.utils.formatUnits(bountyDetails.amount, 18),
+              amount: bountyDetails.amount, // Keep as BigNumber
               status: bountyDetails.status,
               assignee: bountyDetails.assignee,
               difficultyLevel: bountyDetails.difficultyLevel,
@@ -287,7 +288,7 @@ const BountyList = ({ account, contract, projectId, repositoryUrl }) => {
                   {bounties[issue.number] ? (
                     <div className="bg-green-50 rounded-md p-3 text-sm border border-green-200">
                       <div className="font-semibold text-green-800 mb-1">
-                        Bounty: {bounties[issue.number].amount} Tokens
+                        Bounty: {formatTokenAmount(bounties[issue.number].amount)}
                       </div>
                       <div className="text-xs text-green-700">
                         Status: {bounties[issue.number].status}

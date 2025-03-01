@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { FaSearch, FaStar, FaCode, FaSortAmountDown, FaFilter } from 'react-icons/fa';
+import { FaSearch, FaSortAmountDown, FaFilter } from 'react-icons/fa';
+import { ethers } from 'ethers';
+import { formatTokenAmount, calculateEligibleAmount } from '../utils/ethersUtils';
 
 const ExploreBounties = ({ account, contract, profileContract }) => {
   const [bounties, setBounties] = useState([]);
@@ -78,7 +80,18 @@ const ExploreBounties = ({ account, contract, profileContract }) => {
         result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         break;
       case 'highest-reward':
-        result.sort((a, b) => Number(b.amount) - Number(a.amount));
+        // Sort by amount, handling BigNumber values
+        result.sort((a, b) => {
+          const amountA = a.amount && a.amount._isBigNumber 
+            ? parseFloat(ethers.utils.formatEther(a.amount)) 
+            : parseFloat(a.amount) || 0;
+          
+          const amountB = b.amount && b.amount._isBigNumber 
+            ? parseFloat(ethers.utils.formatEther(b.amount)) 
+            : parseFloat(b.amount) || 0;
+          
+          return amountB - amountA;
+        });
         break;
       case 'easiest':
         const difficultyOrder = { 'easy': 0, 'medium': 1, 'hard': 2, 'expert': 3 };
@@ -91,33 +104,7 @@ const ExploreBounties = ({ account, contract, profileContract }) => {
     
     setFilteredBounties(result);
   }, [bounties, searchTerm, difficultyFilter, sortBy]);
-  
-  // Helper function to calculate eligible amount based on profile score
-  const getEligibleAmount = (totalAmount, score) => {
-    if (!score) return { amount: '?', percentage: '?' };
-    
-    let percentage, amount;
-    
-    if (score >= 80) {
-      percentage = '100%';
-      amount = totalAmount;
-    } else if (score >= 60) {
-      percentage = '60%';
-      amount = Math.floor(totalAmount * 0.6);
-    } else if (score >= 40) {
-      percentage = '40%';
-      amount = Math.floor(totalAmount * 0.4);
-    } else if (score >= 20) {
-      percentage = '20%';
-      amount = Math.floor(totalAmount * 0.2);
-    } else {
-      percentage = '10%';
-      amount = Math.floor(totalAmount * 0.1);
-    }
-    
-    return { amount, percentage };
-  };
-  
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -260,7 +247,7 @@ const ExploreBounties = ({ account, contract, profileContract }) => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredBounties.map(bounty => {
-                const eligibleAmount = getEligibleAmount(bounty.amount, profileScore);
+                const eligibleAmount = calculateEligibleAmount(profileScore, bounty.amount);
                 
                 return (
                   <div key={bounty.id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
@@ -283,10 +270,15 @@ const ExploreBounties = ({ account, contract, profileContract }) => {
                     <div className="px-6 py-4">
                       <div className="flex justify-between items-center">
                         <div>
-                          <div className="text-xl font-bold text-blue-600">{bounty.amount} <span className="text-sm">tokens</span></div>
+                          {/* Use formatTokenAmount utility */}
+                          <div className="text-xl font-bold text-blue-600">
+                            {formatTokenAmount(bounty.amount)}
+                          </div>
                           {profileScore !== null && (
                             <div className="text-xs text-gray-500 mt-1">
-                              You're eligible for: <span className="font-medium text-blue-600">{eligibleAmount.amount} tokens ({eligibleAmount.percentage})</span>
+                              You're eligible for: <span className="font-medium text-blue-600">
+                                {eligibleAmount.amount} tokens ({eligibleAmount.percentage})
+                              </span>
                             </div>
                           )}
                         </div>
