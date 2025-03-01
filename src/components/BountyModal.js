@@ -91,11 +91,8 @@ const BountyModal = ({ isOpen, onClose, onSubmit, issue, isSubmitting, projectId
       return;
     }
     
-    // Convert amount to wei
-    const amountInWei = ethers.utils.parseEther(amount);
-    
     onSubmit({ 
-      amount: amountInWei.toString(), 
+      amount: amount.toString(),
       deadline,
       difficultyLevel, // Include difficulty level
       issueNumber: issue.number 

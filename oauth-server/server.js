@@ -794,71 +794,51 @@ app.post('/api/bounties/create', async (req, res) => {
     issueTitle, 
     issueUrl, 
     amount,
-    difficultyLevel, 
-    deadline,
-    ownerAddress 
+    difficultyLevel
   } = req.body;
   
-  if (!projectId || !issueNumber || !issueTitle || !issueUrl || !amount || !difficultyLevel) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required fields'
-    });
-  }
-  
   try {
-    // Connect to the bounty contract
-    if (!bountyContractAddress) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Bounty contract not configured' 
-      });
-    }
+    // 1. Log the environment details
+    console.log(`Creating bounty on chain ID: ${(await provider.getNetwork()).chainId}`);
     
-    // Get the payment token address from the contract
-    const paymentTokenAddress = await bountyContract.paymentToken();
-    console.log(`Using payment token at address: ${paymentTokenAddress}`);
+    // 3. Get the token address for verification
+    const tokenAddress = await bountyContract.paymentToken();
+    console.log(`Payment token address: ${tokenAddress}`);
     
-    // Create token contract instance
-    const tokenContract = new ethers.Contract(
-      paymentTokenAddress,
-      [
-        "function approve(address spender, uint256 amount) external returns (bool)",
-        "function allowance(address owner, address spender) external view returns (uint256)"
-      ],
-      wallet
-    );
-    
-    const weiAmount = ethers.utils.parseEther(amount.toString());
-    
-    // First check if we need to approve tokens
-    const allowance = await tokenContract.allowance(wallet.address, bountyContractAddress);
-    if (allowance.lt(weiAmount)) {
-      console.log(`Approving ${amount} tokens for the bounty contract...`);
-      
-      // Approve the contract to spend tokens
-      const approveTx = await tokenContract.approve(
-        bountyContractAddress, 
-        ethers.constants.MaxUint256  // Approve max amount to avoid multiple approvals
+    // 4. Try to get token info for debugging
+    try {
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ["function symbol() view returns (string)"],
+        provider
       );
-      
-      await approveTx.wait();
-      console.log(`Token approval successful: ${approveTx.hash}`);
+      const symbol = await tokenContract.symbol();
+      console.log(`Payment token symbol: ${symbol}`);
+    } catch (err) {
+      console.warn("Couldn't get token symbol:", err.message);
     }
     
-    // Now create the bounty with a manual gas limit
+    // 5. Create the bounty with manual gas limit
     const tx = await bountyContract.createBounty(
       projectId,
       issueNumber, // Use issueNumber as issueId if you don't have a separate ID
       issueNumber,
       issueTitle,
       issueUrl,
-      weiAmount,
+      amount,
       difficultyLevel,
-      { gasLimit: 500000 } // Add manual gas limit to avoid estimation issues
+      { 
+        gasLimit: 500000
+      }
     );
     
+    console.log(`Transaction sent: ${tx.hash}`);
     const receipt = await tx.wait();
+    console.log(`Transaction confirmed in block: ${receipt.blockNumber}, status: ${receipt.status}`);
+    
+    if (receipt.status === 0) {
+      throw new Error(`Transaction failed. Check transaction ${tx.hash} on the block explorer.`);
+    }
     
     // Extract bounty ID from event logs
     const bountyCreatedEvent = receipt.events?.find(e => e.event === 'BountyCreated');
@@ -872,6 +852,16 @@ app.post('/api/bounties/create', async (req, res) => {
     
   } catch (error) {
     console.error('Error creating bounty:', error);
+    
+    // Log additional details for debugging
+    if (error.transaction) {
+      console.error('Transaction details:', {
+        to: error.transaction.to,
+        from: error.transaction.from,
+        data: error.transaction.data.substring(0, 66) + '...' // Log partial data
+      });
+    }
+    
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to create bounty'

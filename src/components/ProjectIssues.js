@@ -4,6 +4,19 @@ import axios from 'axios';
 import BountyModal from './BountyModal';
 import { ethers } from 'ethers';
 
+const ERC20_ABI = [
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function allowance(address owner, address spender) external view returns (uint256)",
+  "function balanceOf(address account) external view returns (uint256)",
+  "function symbol() external view returns (string)",
+  "function name() external view returns (string)",
+  "function decimals() external view returns (uint8)"
+];
+
+const BOUNTY_CONTRACT_ADDRESS = process.env.REACT_APP_BOUNTY_CONTRACT_ADDRESS || "0x959DBbfd4a4c07b74c6C62bA72e65a63A55d615f";
+const BOUNTY_ABI = ["function paymentToken() external view returns (address)"];
+
+
 const ProjectIssues = ({ account }) => {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -80,6 +93,7 @@ const ProjectIssues = ({ account }) => {
     }
   };
 
+  
   const fetchBounties = async (projectId) => {
     try {
       const response = await axios.get(
@@ -128,27 +142,120 @@ const ProjectIssues = ({ account }) => {
   };
 
   const handleBountySubmit = async (bountyData) => {
-    if (!selectedIssue || !project) return;
+    if (!selectedIssue || !project || !account) {
+      alert("Please connect your wallet before creating a bounty");
+      return;
+    }
     
     setCreatingBounty(true);
     
     try {
+      // 1. Get web3 provider and signer
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      
+      // 2. Connect to bounty contract
+      const bountyContract = new ethers.Contract(
+        BOUNTY_CONTRACT_ADDRESS,
+        BOUNTY_ABI,
+        signer
+      );
+      
+      // 3. Get the payment token address
+      const tokenAddress = await bountyContract.paymentToken();
+      console.log("Payment token address:", tokenAddress);
+      
+      // Check if the token address is valid
+      const code = await provider.getCode(tokenAddress);
+      if (code === '0x') {
+        console.warn("Token address doesn't contain code. This might be using native ETH instead.");
+        
+        // Check native balance instead of token balance
+        const balance = await provider.getBalance(account);
+        const amountWei = ethers.utils.parseEther(bountyData.amount);
+        
+        if (balance.lt(amountWei)) {
+          throw new Error(`Insufficient ETH balance. You need at least ${bountyData.amount} ETH`);
+        }
+        
+        // Skip token approval since we're using native ETH
+        console.log("Creating bounty using native ETH...");
+      } else {
+        // 4. Create token contract instance with safer fallbacks
+        const tokenContract = new ethers.Contract(
+          tokenAddress,
+          ERC20_ABI,
+          signer
+        );
+        
+        // 5. Get token info with fallbacks for non-standard tokens
+        let tokenSymbol = 'TOKENS';
+        try {
+          tokenSymbol = await tokenContract.symbol();
+          console.log(`Using token: ${tokenSymbol} (${tokenAddress})`);
+        } catch (error) {
+          console.warn("Could not get token symbol, using generic name instead:", error.message);
+        }
+        
+        // 6. Check user's token balance with fallback for non-standard tokens
+        try {
+          const balance = await tokenContract.balanceOf(account);
+          const amountWei = ethers.utils.parseEther(bountyData.amount);
+          
+          if (balance.lt(amountWei)) {
+            throw new Error(`Insufficient ${tokenSymbol} balance. You need at least ${bountyData.amount} ${tokenSymbol}`);
+          }
+          
+          // 7. Check allowance with fallback
+          try {
+            const allowance = await tokenContract.allowance(account, BOUNTY_CONTRACT_ADDRESS);
+            
+            if (allowance.lt(amountWei)) {
+              // 8. Need to approve tokens first
+              console.log(`Approving ${bountyData.amount} ${tokenSymbol} for the bounty contract...`);
+              
+              try {
+                const approveTx = await tokenContract.approve(
+                  BOUNTY_CONTRACT_ADDRESS,
+                  ethers.constants.MaxUint256 // Approve max amount to avoid future approvals
+                );
+                
+                // Show approval progress
+                alert(`Please confirm the approval transaction in your wallet. This lets the contract use your ${tokenSymbol} tokens.`);
+                await approveTx.wait();
+                console.log("Approval successful!");
+              } catch (approvalError) {
+                console.error("Approval failed:", approvalError);
+                throw new Error(`Failed to approve tokens: ${approvalError.message}`);
+              }
+            }
+          } catch (allowanceError) {
+            console.warn("Could not check allowance, proceeding anyway:", allowanceError.message);
+          }
+        } catch (balanceError) {
+          console.warn("Could not check token balance:", balanceError.message);
+          alert("Warning: Could not verify your token balance. The transaction might fail if you don't have enough tokens.");
+        }
+      }
+      
+      // 9. Now create the bounty
+      console.log("Creating bounty with amount:", bountyData.amount, "and difficulty:", bountyData.difficultyLevel);
+      
       const response = await axios.post(
         `${OAUTH_SERVER_URL}/api/bounties/create`,
         {
           projectId,
-          issueId: selectedIssue.number,       // Use this as both ID and number if you don't have a separate ID
           issueNumber: selectedIssue.number,
           issueTitle: selectedIssue.title,
           issueUrl: selectedIssue.html_url,
           amount: bountyData.amount,
-          difficultyLevel: bountyData.difficultyLevel, // Make sure this is included
+          difficultyLevel: bountyData.difficultyLevel,
           deadline: Math.floor(new Date(bountyData.deadline).getTime() / 1000),
           ownerAddress: account
         },
         { withCredentials: true }
       );
-        
+      
       if (response.data && response.data.success) {
         alert(`Bounty created successfully! Transaction: ${response.data.txHash}`);
         setShowBountyModal(false);
