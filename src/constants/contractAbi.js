@@ -167,6 +167,58 @@ export const CONTRACT_ABI = [
     {
       "inputs": [
         {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "getWalletGitHubInfo",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "username",
+          "type": "string"
+        },
+        {
+          "internalType": "bool",
+          "name": "verified",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint256",
+          "name": "verificationTimestamp",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }, 
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "username",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "verificationHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "verifyUserWallet",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },       
+    {
+      "inputs": [
+        {
           "internalType": "string",
           "name": "username",
           "type": "string"

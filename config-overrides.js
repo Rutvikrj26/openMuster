@@ -4,7 +4,7 @@ module.exports = function override(config) {
   // Add fallbacks for Node.js core modules
   config.resolve.fallback = {
     ...config.resolve.fallback,
-    "process": require.resolve("process/browser"),
+    "process": false,
     "stream": require.resolve("stream-browserify"),
     "util": require.resolve("util"),
     "buffer": require.resolve("buffer"),
@@ -14,18 +14,17 @@ module.exports = function override(config) {
     "os": require.resolve("os-browserify/browser"),
     "path": require.resolve("path-browserify"),
     "zlib": require.resolve("browserify-zlib"),
+    "asset": require.resolve("assert"),
   };
 
-  // Add plugins to provide process and Buffer
-  config.plugins.push(
+  // Add plugins to provide Buffer
+  config.plugins = [
+    ...(config.plugins || []),
     new webpack.ProvidePlugin({
       process: 'process/browser',
       Buffer: ['buffer', 'Buffer'],
     }),
-    new webpack.DefinePlugin({
-      'process.env': JSON.stringify(process.env)
-    })
-  );
+  ];
 
   return config;
 };

@@ -4,6 +4,7 @@ pragma solidity ^0.8.19;
 /**
  * @title GitHubProfileScoreZK
  * @dev Store GitHub profile analysis scores with zkVerify proof verification
+ * @notice This version includes case-insensitive username handling
  */
 contract GitHubProfileScoreZK {
     address public owner;
@@ -115,6 +116,37 @@ contract GitHubProfileScoreZK {
     }
     
     /**
+     * @dev Helper function to convert a string to lowercase for case-insensitive comparisons
+     * @param str String to convert to lowercase
+     * @return bytes Lowercase version of the string as bytes
+     */
+    function toLowercase(string memory str) internal pure returns (bytes memory) {
+        bytes memory bStr = bytes(str);
+        bytes memory bLower = new bytes(bStr.length);
+        
+        for (uint i = 0; i < bStr.length; i++) {
+            // ASCII uppercase letters are in range 65-90
+            if (uint8(bStr[i]) >= 65 && uint8(bStr[i]) <= 90) {
+                // Convert uppercase to lowercase by adding 32
+                bLower[i] = bytes1(uint8(bStr[i]) + 32);
+            } else {
+                bLower[i] = bStr[i];
+            }
+        }
+        
+        return bLower;
+    }
+    
+    /**
+     * @dev Get a normalized hash for a username (case-insensitive)
+     * @param username Username to hash
+     * @return bytes32 Hash of the lowercase version of the username
+     */
+    function getNormalizedUsernameHash(string memory username) internal pure returns (bytes32) {
+        return keccak256(toLowercase(username));
+    }
+    
+    /**
      * @dev Set the address of the verifier server
      * @param _verifierServer Address allowed to verify GitHub associations
      */
@@ -161,10 +193,10 @@ contract GitHubProfileScoreZK {
     ) public {
         // If including private repos, the association must be verified or have ZK proof
         if (includesPrivateRepos) {
-            bytes32 usernameHash = keccak256(abi.encodePacked(username));
+            bytes32 usernameHash = getNormalizedUsernameHash(username);
             bool isVerified = userWallets[msg.sender].verified && 
-                              keccak256(abi.encodePacked(userWallets[msg.sender].username)) == 
-                              keccak256(abi.encodePacked(username));
+                              getNormalizedUsernameHash(userWallets[msg.sender].username) == 
+                              getNormalizedUsernameHash(username);
             
             bool hasZkProof = false;
             if (profileScores[usernameHash].exists) {
@@ -175,12 +207,12 @@ contract GitHubProfileScoreZK {
                     "To include private repos, wallet must be verified or have ZK proof");
         }
         
-        bytes32 usernameHash = keccak256(abi.encodePacked(username));
+        bytes32 usernameHash = getNormalizedUsernameHash(username);
         ProfileData storage profile = profileScores[usernameHash];
         
         if (!profile.exists) {
             // New profile
-            profile.username = username;
+            profile.username = username; // Store the original case for display purposes
             profile.exists = true;
             analyzedProfiles.push(usernameHash);
             
@@ -228,7 +260,7 @@ contract GitHubProfileScoreZK {
         }
         require(isValidProofType, "Invalid proof type");
         
-        bytes32 usernameHash = keccak256(abi.encodePacked(username));
+        bytes32 usernameHash = getNormalizedUsernameHash(username);
         ProfileData storage profile = profileScores[usernameHash];
         
         require(profile.exists, "Profile does not exist");
@@ -263,8 +295,8 @@ contract GitHubProfileScoreZK {
         
         // Update the username for this wallet (but preserve verification if username is the same)
         bool wasVerified = association.verified;
-        bool sameUsername = keccak256(abi.encodePacked(association.username)) == 
-                           keccak256(abi.encodePacked(username));
+        bool sameUsername = getNormalizedUsernameHash(association.username) == 
+                           getNormalizedUsernameHash(username);
         
         // If changing username, lose verification status
         if (!sameUsername) {
@@ -294,9 +326,8 @@ contract GitHubProfileScoreZK {
         // Update or create association
         if (bytes(association.username).length == 0) {
             registeredWallets.push(wallet);
-        }
-        
-        association.username = username;
+        }        
+        association.username = username; // Store original case for display
         association.verified = true;
         association.verificationTimestamp = block.timestamp;
         association.verificationHash = verificationHash;
@@ -310,7 +341,7 @@ contract GitHubProfileScoreZK {
      * @return Profile data if exists, or empty profile with exists=false if not
      */
     function getProfileScore(string memory username) public view returns (ProfileDataView memory) {
-        bytes32 usernameHash = keccak256(abi.encodePacked(username));
+        bytes32 usernameHash = getNormalizedUsernameHash(username);
         ProfileData storage profile = profileScores[usernameHash];
         
         return ProfileDataView({
@@ -341,7 +372,7 @@ contract GitHubProfileScoreZK {
         string memory username,
         string memory proofType
     ) public view returns (PublicProofVerification memory) {
-        bytes32 usernameHash = keccak256(abi.encodePacked(username));
+        bytes32 usernameHash = getNormalizedUsernameHash(username);
         ProfileData storage profile = profileScores[usernameHash];
         
         require(profile.exists, "Profile does not exist");
@@ -365,7 +396,7 @@ contract GitHubProfileScoreZK {
     function getAllZkProofVerifications(
         string memory username
     ) public view returns (PublicProofVerification[] memory) {
-        bytes32 usernameHash = keccak256(abi.encodePacked(username));
+        bytes32 usernameHash = getNormalizedUsernameHash(username);
         ProfileData storage profile = profileScores[usernameHash];
         
         require(profile.exists, "Profile does not exist");
@@ -403,6 +434,18 @@ contract GitHubProfileScoreZK {
     }
     
     /**
+     * @dev Check if a wallet is verified for a specific GitHub username
+     * @param wallet Wallet address to check
+     * @param username GitHub username to verify against
+     * @return bool Whether the wallet is verified for this username
+     */
+    function isVerifiedForUsername(address wallet, string memory username) public view returns (bool) {
+        WalletGitHubAssociation storage association = userWallets[wallet];
+        return association.verified && 
+            getNormalizedUsernameHash(association.username) == getNormalizedUsernameHash(username);
+    }
+    
+    /**
      * @dev Get the count of analyzed profiles
      * @return Number of profiles analyzed
      */
@@ -418,6 +461,15 @@ contract GitHubProfileScoreZK {
         return registeredWallets.length;
     }
     
+    // Update the function documentation for getWalletGitHubInfo
+
+    /**
+     * @dev Get GitHub info for a wallet
+     * @param wallet Wallet address to check
+     * @return username The GitHub username associated with this wallet
+     * @return verified Whether the wallet is verified for this username
+     * @return verificationTimestamp When the verification occurred
+     */
     function getWalletGitHubInfo(address wallet) public view returns (
         string memory username, 
         bool verified, 

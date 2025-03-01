@@ -1,15 +1,21 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const VerificationSuccess = ({ onVerificationComplete }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
-  const username = searchParams.get('username');
+  const usernameParam = searchParams.get('username');
+  
+  const username = usernameParam ? usernameParam.toLowerCase() : null;
+
+  // Move useRef outside of useEffect
+  const hasCalledSuccess = useRef(false);
   
   useEffect(() => {
-    // Call the completion callback if provided
-    if (onVerificationComplete && username) {
+    // Only call onVerificationComplete once
+    if (onVerificationComplete && username && !hasCalledSuccess.current) {
+      hasCalledSuccess.current = true;
       onVerificationComplete(username);
       
       // Navigate to the username's profile page after a short delay

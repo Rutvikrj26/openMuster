@@ -20,22 +20,24 @@ const UsernameInput = ({ account, contract, verified }) => {
       setLoading(true);
       setError('');
       
+      const normalizedUsername = username.trim().toLowerCase();
+
       // Check if profile already exists on blockchain
-      const existingProfile = await contract.getProfileScore(username);
+      const existingProfile = await contract.getProfileScore(normalizedUsername);
       
       if (existingProfile.exists) {
         // Navigate to results for existing profile
-        navigate(`/results/${username}`);
+        navigate(`/results/${normalizedUsername}`);
         return;
       }
       
       // Analyze GitHub profile
       const analyzer = new GitHubProfileAnalyzer();
-      const analysis = await analyzer.analyze(username);
+      const analysis = await analyzer.analyze(normalizedUsername);
       
       // Store on blockchain (without including private repos)
       const tx = await contract.addProfileScore(
-        analysis.username,
+        analysis.normalizedUsername,
         Math.round(analysis.overallScore),
         analysis.metrics.profileCompleteness,
         analysis.metrics.followers,
@@ -46,12 +48,25 @@ const UsernameInput = ({ account, contract, verified }) => {
         analysis.metrics.recentActivity,
         false // Don't include private repos for manual username input
       );
-      
+
+      console.log(`[ANALYZE] Transaction sent with hash: ${tx.hash}`);
+ 
+      console.log(`[ANALYZE] Waiting for transaction to be mined...`);      
       // Wait for transaction to be mined
-      await tx.wait();
+      const receipt = await tx.wait();
+      console.log(`[ANALYZE] Transaction mined in block: ${receipt.blockNumber}`);
+      console.log(`[ANALYZE] Gas used: ${receipt.gasUsed.toString()}`);
+      console.log(`[ANALYZE] Events emitted:`, receipt.events);      
+
+      // Verify data was stored - fetch immediately after transaction
+      console.log(`[ANALYZE] Verifying data was stored by fetching from chain...`);
+      const verificationData = await contract.getProfileScore(normalizedUsername);
+      console.log(`[ANALYZE] Verification data exists flag: ${verificationData.exists}`);
+      console.log(`[ANALYZE] Verification data:`, verificationData);
+
       
       // Navigate to results page
-      navigate(`/results/${username}`);
+      navigate(`/results/${normalizedUsername}`);
     } catch (error) {
       console.error('Error:', error);
       setError(error.message || 'An error occurred during analysis');

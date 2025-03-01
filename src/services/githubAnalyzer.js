@@ -170,10 +170,13 @@ export class GitHubProfileAnalyzer {
   // Analyze a GitHub profile
   async analyze(username, privateRepoData = null) {
     try {
+
+      const normalizedUsername = username.toLowerCase();
+
       // Fetch all necessary data
-      const userData = await this.fetchUserData(username);
-      const repos = await this.fetchRepos(username);
-      const contributionData = await this.fetchContributions(username);
+      const userData = await this.fetchUserData(normalizedUsername);
+      const repos = await this.fetchRepos(normalizedUsername);
+      const contributionData = await this.fetchContributions(normalizedUsername);
       
       // Flag for whether we're including private repos
       const includesPrivateRepos = privateRepoData !== null;
@@ -226,7 +229,7 @@ export class GitHubProfileAnalyzer {
       
       // Return formatted analysis
       return {
-        username,
+        username: normalizedUsername,
         overallScore,
         metrics: {
           profileCompleteness: metrics.profileCompleteness,
