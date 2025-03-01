@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import zkProvider from '../services/zkProvider';
+import { ProofManager } from '../services/zkProofManager.ts';
 
-const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofGenerated }) => {
-  const [state, setState] = useState({
-    status: 'idle', // idle, generating, verifying, success, error
-    error: null,
-    proofs: [],
-    verificationResult: null
-  });
+  const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofGenerated }) => {
+    const [state, setState] = useState({
+      status: 'idle', // idle, generating, verifying, success, error
+      error: null,
+      proofs: [],
+      verificationResult: null
+    });
+
+  const proofManager = new ProofManager();
 
   useEffect(() => {
     // Reset state when username or privateRepoData changes
@@ -111,9 +114,53 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
         status: 'verifying'
       }));
 
-      // Verify all proofs through zkVerify
-      const verificationResult = await zkProvider.verifyProofs(proofs);
+      // Verify proofs through zkVerify blockchain using our ProofManager
+      console.log('Initializing zkVerify session...');
+      let verificationResults = [];
 
+      // Handle each proof individually through our ProofManager
+      try {
+        // Verify code metrics proof (RISC0)
+        console.log('Verifying code metrics proof...');
+        const metricsResult = await proofManager.proveCodeMetrics({
+          ...privateRepoData,
+          // Pass the already generated proof
+          generatedProof: codeMetricsProof
+        });
+        verificationResults.push(metricsResult);
+        
+        // Verify activity proof (Noir)
+        console.log('Verifying activity proof...');
+        const activityResult = await proofManager.proveActivity({
+          ...privateRepoData,
+          generatedProof: activityProof
+        });
+        verificationResults.push(activityResult);
+        
+        // Verify ownership proof (Groth16)
+        console.log('Verifying ownership proof...');
+        const ownershipResult = await proofManager.proveOwnership({
+          ...privateRepoData,
+          username,
+          walletAddress: account,
+          generatedProof: ownershipProof
+        });
+        verificationResults.push(ownershipResult);
+        
+        // Verify language proof (FFlonk)
+        console.log('Verifying language proof...');
+        const languageResult = await proofManager.proveLanguage({
+          ...privateRepoData,
+          generatedProof: languageProof
+        });
+        verificationResults.push(languageResult);
+        
+        // Combine verification results
+        const verificationResult = {
+          success: verificationResults.every(r => r.success),
+          results: verificationResults,
+          txHash: verificationResults[0]?.verified?.events?.includedInBlock?.transactionHash
+        };
       setState(prev => ({
         ...prev,
         status: 'success',
@@ -133,7 +180,15 @@ const ZKPrivateProof = ({ privateRepoData, contract, account, username, onProofG
         error: error.message || 'Failed to generate and verify ZK proofs'
       }));
     }
-  };
+  } catch (error) {
+    console.error('Error generating ZK proofs:', error);
+    setState(prev => ({
+      ...prev,
+      status: 'error',
+      error: error.message || 'Failed to generate ZK proofs'
+    }));
+  }
+};
 
   // Format proof type for display
   const formatProofType = (type) => {

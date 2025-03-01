@@ -5,7 +5,6 @@ import axios from 'axios';
 import { GitHubProfileAnalyzer } from '../services/githubAnalyzer';
 import ZKPrivateProof from './ZKPrivateProof';
 import ProofBadges from './ProofBadges';
-import zkProvider from '../services/zkProvider';
 
 const ProfileResults = ({ account, contract, isVerified, verifiedUsername }) => {
   const { username } = useParams();

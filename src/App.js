@@ -4,7 +4,7 @@ import { ethers } from 'ethers';
 
 // Components
 import ConnectWallet from './components/ConnectWallet';
-import ConnectGitHub from './components/ConnectGitHub';
+import ConnectGitHub from './components/ConnectGithub';
 import UsernameInput from './components/UsernameInput';
 import ProfileResults from './components/ProfileResults';
 import VerificationSuccess from './components/VerificationSuccess';

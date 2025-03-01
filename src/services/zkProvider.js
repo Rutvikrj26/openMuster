@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 /**
- * ZkProvider service handles the generation and verification of ZK proofs
- * using the zkVerify infrastructure
+ * ZkProvider service handles the generation of ZK proofs
+ * using an external API service
  */
 class ZkProvider {
   constructor() {
@@ -128,7 +128,7 @@ class ZkProvider {
   }
 
   /**
-   * Generate language proficiency proof using Polygon FFlonk
+   * Generate language proficiency proof using FFlonk
    * Proves language usage across repositories without revealing code
    */
   async generateLanguageProof(languageData) {
@@ -159,37 +159,6 @@ class ZkProvider {
     } catch (error) {
       console.error('Error generating FFlonk language proof:', error);
       throw new Error('Failed to generate language proof');
-    }
-  }
-
-  /**
-   * Verify multiple proofs on zkVerify blockchain
-   */
-  async verifyProofs(proofs) {
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/verify/batch`,
-        {
-          proofs: proofs.map(p => ({
-            proof_type: p.proofType,
-            proof_id: p.proofId,
-            proof: p.proof,
-            public_inputs: p.publicInputs
-          }))
-        },
-        { headers: this.getHeaders() }
-      );
-
-      return {
-        verificationId: response.data.verification_id,
-        results: response.data.results,
-        txHash: response.data.transaction_hash,
-        blockNumber: response.data.block_number,
-        timestamp: response.data.timestamp
-      };
-    } catch (error) {
-      console.error('Error verifying proofs on zkVerify:', error);
-      throw new Error('Failed to verify proofs');
     }
   }
 
