@@ -4,12 +4,12 @@ const axios = require('axios');
 const cors = require('cors');
 const { ethers } = require('ethers');
 const crypto = require('crypto');
-const cookieParser = require('cookie-parser'); // Add this dependency
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Encryption key for tokens (generate a secure one for production)
+// Encryption key for tokens - must be stable between server restarts
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 if (!ENCRYPTION_KEY) {
   console.error('⚠️ WARNING: ENCRYPTION_KEY environment variable is not set!');
@@ -17,48 +17,51 @@ if (!ENCRYPTION_KEY) {
   console.error('Set a fixed ENCRYPTION_KEY in your .env file for production.');
 }
 
-// Generate a temporary key if none is provided (development only)
+// Use stable encryption key
 const encryptionKey = ENCRYPTION_KEY || 
-                     '2fbd59bdc2f792bbfe21954e605896fcc7d1ef8af75affb6ff1b170ccdf23657'; // Default fallback key
-const IV_LENGTH = 16; // For AES, this is always 16
+                     '2fbd59bdc2f792bbfe21954e605896fcc7d1ef8af75affb6ff1b170ccdf23657';
+const IV_LENGTH = 16;
 
 // Middleware
 app.use(cors({ 
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true // Allow cookies to be sent
+  credentials: true
 }));
 app.use(express.json());
-app.use(cookieParser()); // Add cookie parser
+app.use(cookieParser());
 
 // GitHub OAuth credentials
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || 'http://localhost:3001/api/auth/github/callback';
 
-// Blockchain connection (for blockchain verification)
+// Blockchain connection
 const provider = new ethers.providers.JsonRpcProvider(process.env.RPC_URL || 'https://sepolia.base.org');
 const contractABI = require('./contractABI.json');
-const bountyContractABI = require('./BountycontractABI.json');
+const bountyContractABI = require('./BountycontractABI.json').abi; // Access .abi property
 const contractAddress = process.env.CONTRACT_ADDRESS;
+const bountyContractAddress = process.env.BOUNTY_CONTRACT_ADDRESS;
 
 // Only setup wallet and contract if private key is provided
-let wallet, contract;
+let wallet, contract, bountyContract;
 if (process.env.PRIVATE_KEY) {
   wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
   contract = new ethers.Contract(contractAddress, contractABI, wallet);
+  
+  if (bountyContractAddress) {
+    bountyContract = new ethers.Contract(bountyContractAddress, bountyContractABI, wallet);
+  }
 }
 
 // In-memory storage (replace with database in production)
 const pendingVerifications = new Map();
-
-// Update the encryption function to use the stable key
 
 function encryptToken(text) {
   try {
     const iv = crypto.randomBytes(IV_LENGTH);
     const cipher = crypto.createCipheriv(
       'aes-256-cbc', 
-      Buffer.from(encryptionKey, 'hex'), // Use the stable key
+      Buffer.from(encryptionKey, 'hex'),
       iv
     );
     let encrypted = cipher.update(text);
@@ -94,7 +97,7 @@ function decryptToken(text) {
     
     const decipher = crypto.createDecipheriv(
       'aes-256-cbc', 
-      Buffer.from(encryptionKey, 'hex'), // Use the stable key
+      Buffer.from(encryptionKey, 'hex'),
       iv
     );
     
@@ -102,13 +105,13 @@ function decryptToken(text) {
     decrypted = Buffer.concat([decrypted, decipher.final()]);
     return decrypted.toString();
   } catch (error) {
-    // Add more debug info for decryption errors
     console.error('Decryption error:', error);
-    console.log('Encrypted text:', text);
+    console.log('Encrypted text (first 20 chars):', text?.substring(0, 20));
     console.log('Key length:', encryptionKey.length);
     return null;
   }
 }
+
 // Route to initiate OAuth flow
 app.get('/api/auth/github', (req, res) => {
   const { wallet: walletAddress, redirect: redirectPath } = req.query;
@@ -214,8 +217,8 @@ app.get('/api/auth/github/callback', async (req, res) => {
     const encryptedToken = encryptToken(access_token);
     res.cookie('github_oauth_token', encryptedToken, { 
       httpOnly: true, 
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', // 'lax' is more compatible than 'strict'
+      secure: process.env.NODE_ENV === 'production', // false in development
+      sameSite: 'lax',
       maxAge: 3600000 // 1 hour
     });
     
@@ -223,7 +226,6 @@ app.get('/api/auth/github/callback', async (req, res) => {
     let redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verification-success?username=${githubUsername}`;
     
     if (redirectPath) {
-      // If there was a specific path to return to, use it
       redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}${redirectPath}`;
     }
     
@@ -234,34 +236,72 @@ app.get('/api/auth/github/callback', async (req, res) => {
   }
 });
 
+// Debug endpoint to check/reset authentication
+app.get('/api/auth/status', (req, res) => {
+  const encryptedToken = req.cookies?.github_oauth_token;
+  let hasValidToken = false;
+  
+  if (encryptedToken) {
+    try {
+      const token = decryptToken(encryptedToken);
+      hasValidToken = !!token;
+    } catch (err) {
+      console.log("Error checking token:", err);
+    }
+  }
+  
+  res.json({
+    authenticated: hasValidToken,
+    hasCookie: !!encryptedToken
+  });
+});
+
+app.get('/api/auth/reset', (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Not available in production' });
+  }
+  
+  res.clearCookie('github_oauth_token');
+  res.json({ success: true, message: 'Authentication reset' });
+});
+
 app.get('/api/github/repos/:username/authenticated', async (req, res) => {
   const originalUsername = req.params.username;
   const username = originalUsername.toLowerCase();
   let token;
   
-  // Try multiple auth mechanisms with fallbacks
-  // 1. Try cookie first (new method)
-  const encryptedToken = req.cookies?.github_oauth_token;
-  if (encryptedToken) {
-    try {
-      token = decryptToken(encryptedToken);
-      console.log("Using token from cookie authentication");
-    } catch (err) {
-      console.log("Error decrypting token from cookie:", err);
-      // Continue to next auth method
+  // Development bypass for testing
+  if (process.env.NODE_ENV !== 'production' && process.env.DEV_GITHUB_TOKEN) {
+    token = process.env.DEV_GITHUB_TOKEN;
+    console.log("Using development GitHub token");
+  } else {
+    // Try multiple auth mechanisms with fallbacks
+    // 1. Try cookie first
+    const encryptedToken = req.cookies?.github_oauth_token;
+    if (encryptedToken) {
+      try {
+        token = decryptToken(encryptedToken);
+        if (token) {
+          console.log("Using token from cookie authentication");
+        } else {
+          console.log("Failed to decrypt token from cookie");
+        }
+      } catch (err) {
+        console.log("Error decrypting token from cookie:", err);
+      }
     }
-  }
-  
-  // 2. Try query param (fallback method)
-  if (!token && req.query.token) {
-    token = req.query.token;
-    console.log("Using token from query parameter");
-  }
-  
-  // 3. Check auth header (another fallback)
-  if (!token && req.headers.authorization?.startsWith('Bearer ')) {
-    token = req.headers.authorization.substring(7);
-    console.log("Using token from authorization header");
+    
+    // 2. Try query param (fallback)
+    if (!token && req.query.token) {
+      token = req.query.token;
+      console.log("Using token from query parameter");
+    }
+    
+    // 3. Check auth header (another fallback)
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.substring(7);
+      console.log("Using token from authorization header");
+    }
   }
   
   // If no token found through any method
@@ -269,7 +309,7 @@ app.get('/api/github/repos/:username/authenticated', async (req, res) => {
     return res.status(401).json({ 
       error: 'No authentication token found. Please provide a token or verify your GitHub account.',
       authMethods: {
-        cookie: !!encryptedToken,
+        cookie: !!req.cookies?.github_oauth_token,
         queryParam: !!req.query.token,
         authHeader: !!req.headers.authorization
       }
@@ -277,7 +317,7 @@ app.get('/api/github/repos/:username/authenticated', async (req, res) => {
   }
   
   try {
-    // Fetch user's repositories including private ones
+    // Fetch user's repositories
     const reposResponse = await axios.get(
       `https://api.github.com/users/${username}/repos?type=all&per_page=100`,
       {
@@ -287,17 +327,21 @@ app.get('/api/github/repos/:username/authenticated', async (req, res) => {
       }
     );
     
-    // Process and anonymize private repo data for ZK applications
+    // Process repo data
     const repos = reposResponse.data.map(repo => ({
       id: repo.id,
-      name: repo.private ? `private-${repo.id}` : repo.name, // Anonymize private repo names
+      name: repo.name,
+      full_name: repo.full_name,
+      html_url: repo.html_url,
       private: repo.private,
+      description: repo.description || '',
       stars: repo.stargazers_count,
       forks: repo.forks_count,
       language: repo.language,
       created_at: repo.created_at,
       updated_at: repo.updated_at,
-      size: repo.size
+      size: repo.size,
+      permissions: repo.permissions || {}
     }));
     
     // Count metrics
@@ -310,7 +354,7 @@ app.get('/api/github/repos/:username/authenticated', async (req, res) => {
     // Get repository IDs for proof verification
     const repositoryIds = repos.map(repo => repo.id.toString());
     
-    // Return anonymized stats
+    // Return repository data
     res.json({
       username,
       totalRepos: repos.length,
@@ -336,7 +380,7 @@ app.get('/api/github/repos/:username/authenticated', async (req, res) => {
   }
 });
 
-// Legacy API to fetch GitHub repo information (for backward compatibility)
+// Legacy API to fetch GitHub repo information
 app.get('/api/github/repos/:username', async (req, res) => {
   const originalUsername = req.params.username;
   const username = originalUsername.toLowerCase();
@@ -347,7 +391,7 @@ app.get('/api/github/repos/:username', async (req, res) => {
   }
   
   try {
-    // Fetch user's repositories including private ones
+    // Fetch user's repositories
     const reposResponse = await axios.get(
       `https://api.github.com/users/${username}/repos?type=all&per_page=100`,
       {
@@ -357,11 +401,14 @@ app.get('/api/github/repos/:username', async (req, res) => {
       }
     );
     
-    // Process and anonymize private repo data for ZK applications
+    // Process repo data
     const repos = reposResponse.data.map(repo => ({
       id: repo.id,
-      name: repo.private ? `private-${repo.id}` : repo.name, // Anonymize private repo names
+      name: repo.name,
+      full_name: repo.full_name,
+      html_url: repo.html_url,
       private: repo.private,
+      description: repo.description || '',
       stars: repo.stargazers_count,
       forks: repo.forks_count,
       language: repo.language,
@@ -380,7 +427,7 @@ app.get('/api/github/repos/:username', async (req, res) => {
     // Get repository IDs for proof verification
     const repositoryIds = repos.map(repo => repo.id.toString());
     
-    // Return anonymized stats
+    // Return repository data
     res.json({
       username,
       totalRepos: repos.length,
@@ -430,9 +477,7 @@ app.get('/api/verify/status/:wallet', async (req, res) => {
   }
 });
 
-// Add after the existing endpoints, before the server startup code
-
-// Projects-related API endpoints
+// Register a new project
 app.post('/api/projects/register', async (req, res) => {
   const { 
     name, 
@@ -461,9 +506,6 @@ app.post('/api/projects/register', async (req, res) => {
   }
   
   try {
-    // Get the bounty contract ABI and address
-    const bountyContractAddress = process.env.BOUNTY_CONTRACT_ADDRESS;
-    
     if (!bountyContractAddress) {
       return res.status(500).json({ 
         success: false, 
@@ -471,17 +513,26 @@ app.post('/api/projects/register', async (req, res) => {
       });
     }
     
-    // Connect to the bounty contract
-    const bountyContract = new ethers.Contract(
-      bountyContractAddress, 
-      bountyContractABI, 
-      wallet
-    );
+    if (!wallet) {
+      return res.status(500).json({
+        success: false,
+        error: 'Server wallet not configured'
+      });
+    }
+    
+    // Connect to the bounty contract if not already done
+    if (!bountyContract) {
+      bountyContract = new ethers.Contract(
+        bountyContractAddress, 
+        bountyContractABI,
+        wallet
+      );
+    }
     
     console.log(`Registering project "${name}" for wallet ${ownerAddress}`);
     console.log(`Repository: ${repositoryName} (ID: ${repositoryId})`);
     
-    // Submit transaction to register project on-chain
+    // Submit transaction to register project
     const tx = await bountyContract.registerProject(
       name,
       description || '',
@@ -497,13 +548,12 @@ app.post('/api/projects/register', async (req, res) => {
     const receipt = await tx.wait();
     console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
     
-    // Extract project ID from the event
+    // Extract project ID from event
     const projectRegisteredEvent = receipt.events?.find(e => e.event === 'ProjectRegistered');
     const projectId = projectRegisteredEvent?.args?.projectId.toString() || '0';
     
     console.log(`Project registered with ID: ${projectId}`);
     
-    // Return success response with project ID
     res.json({
       success: true,
       projectId,
@@ -531,9 +581,6 @@ app.get('/api/projects/user/:address', async (req, res) => {
   }
   
   try {
-    const bountyContractAddress = process.env.BOUNTY_CONTRACT_ADDRESS;
-    const bountyContractABI = require('./bountyContractABI.json');
-    
     if (!bountyContractAddress) {
       return res.status(500).json({ 
         success: false, 
@@ -541,32 +588,36 @@ app.get('/api/projects/user/:address', async (req, res) => {
       });
     }
     
-    // Connect to the bounty contract
-    const bountyContract = new ethers.Contract(
-      bountyContractAddress, 
-      bountyContractABI, 
-      provider
-    );
+    // Connect to the bounty contract if not already done
+    let queryContract;
+    if (!bountyContract) {
+      queryContract = new ethers.Contract(
+        bountyContractAddress, 
+        bountyContractABI,
+        provider
+      );
+    } else {
+      queryContract = bountyContract;
+    }
     
     // Get project IDs owned by this address
-    const projectIds = await bountyContract.getProjectsByOwner(address);
+    const projectIds = await queryContract.getOwnerProjects(address);
     
     // Fetch details for each project
     const projects = [];
     for (const id of projectIds) {
-      const projectData = await bountyContract.getProject(id);
+      const projectData = await queryContract.getProject(id);
       
       if (projectData.exists) {
         projects.push({
-          id: projectData.id.toString(),
+          id: id.toString(),
           name: projectData.name,
           description: projectData.description,
           website: projectData.website,
           githubUrl: projectData.githubUrl,
           repositoryName: projectData.repoName,
           repositoryId: projectData.repoId.toString(),
-          ownerAddress: projectData.owner,
-          createdAt: new Date(projectData.timestamp.toNumber() * 1000).toISOString()
+          ownerAddress: projectData.owner
         });
       }
     }
@@ -585,14 +636,91 @@ app.get('/api/projects/user/:address', async (req, res) => {
   }
 });
 
+app.get('/api/github/issues/:owner/:repo', async (req, res) => {
+  const { owner, repo } = req.params;
+  const { state = 'open' } = req.query;
+  let token;
+  
+  // Same token handling as in your repos endpoint
+  if (process.env.NODE_ENV !== 'production' && process.env.DEV_GITHUB_TOKEN) {
+    token = process.env.DEV_GITHUB_TOKEN;
+    console.log("Using development GitHub token");
+  } else {
+    // Try multiple auth mechanisms with fallbacks
+    const encryptedToken = req.cookies?.github_oauth_token;
+    if (encryptedToken) {
+      try {
+        token = decryptToken(encryptedToken);
+      } catch (err) {
+        console.log("Error decrypting token from cookie:", err);
+      }
+    }
+    
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
+    
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.substring(7);
+    }
+  }
+  
+  if (!token) {
+    return res.status(401).json({ 
+      error: 'No authentication token found. Please verify your GitHub account.'
+    });
+  }
+  
+  try {
+    // Fetch issues from GitHub API
+    const issuesResponse = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}/issues`,
+      {
+        headers: {
+          Authorization: `token ${token}`
+        },
+        params: {
+          state,
+          per_page: 100,
+          sort: 'created',
+          direction: 'desc'
+        }
+      }
+    );
+    
+    // Filter out pull requests which are also returned by this endpoint
+    const issues = issuesResponse.data.filter(issue => !issue.pull_request);
+    
+    res.json({
+      success: true,
+      repoFullName: `${owner}/${repo}`,
+      issueCount: issues.length,
+      issues
+    });
+  } catch (error) {
+    console.error('Error fetching GitHub issues:', error);
+    if (error.response?.status === 401) {
+      res.status(401).json({ 
+        error: 'GitHub authentication expired. Please verify your account again.'
+      });
+    } else if (error.response?.status === 404) {
+      res.status(404).json({ 
+        error: 'Repository not found or you don\'t have access to it.'
+      });
+    } else {
+      res.status(error.response?.status || 500).json({ 
+        error: 'Failed to fetch GitHub issues',
+        githubError: error.response?.data || error.message
+      });
+    }
+  }
+});
+
 // API to get a specific project by ID
 app.get('/api/projects/:id', async (req, res) => {
   const { id } = req.params;
   
   try {
-    const bountyContractAddress = process.env.BOUNTY_CONTRACT_ADDRESS;
-    const bountyContractABI = require('./bountyContractABI.json');
-    
     if (!bountyContractAddress) {
       return res.status(500).json({ 
         success: false, 
@@ -600,15 +728,20 @@ app.get('/api/projects/:id', async (req, res) => {
       });
     }
     
-    // Connect to the bounty contract
-    const bountyContract = new ethers.Contract(
-      bountyContractAddress, 
-      bountyContractABI, 
-      provider
-    );
+    // Connect to the bounty contract if not already done
+    let queryContract;
+    if (!bountyContract) {
+      queryContract = new ethers.Contract(
+        bountyContractAddress, 
+        bountyContractABI,
+        provider
+      );
+    } else {
+      queryContract = bountyContract;
+    }
     
     // Get project data
-    const projectData = await bountyContract.getProject(id);
+    const projectData = await queryContract.getProject(id);
     
     if (!projectData.exists) {
       return res.status(404).json({
@@ -618,7 +751,7 @@ app.get('/api/projects/:id', async (req, res) => {
     }
     
     const project = {
-      id: projectData.id.toString(),
+      id: id.toString(),
       name: projectData.name,
       description: projectData.description,
       website: projectData.website,
@@ -626,8 +759,7 @@ app.get('/api/projects/:id', async (req, res) => {
       repositoryOwner: projectData.githubUrl.split('/').slice(-2)[0],
       repositoryName: projectData.repoName,
       repositoryId: projectData.repoId.toString(),
-      ownerAddress: projectData.owner,
-      createdAt: new Date(projectData.timestamp.toNumber() * 1000).toISOString()
+      ownerAddress: projectData.owner
     };
     
     res.json({
@@ -644,44 +776,253 @@ app.get('/api/projects/:id', async (req, res) => {
   }
 });
 
-// Helper endpoint for ZK proof verification (proxies zkVerify API but keeps sensitive keys on server)
-app.post('/api/zkverify/submit', async (req, res) => {
-  const { proofType, proofData } = req.body;
+// Add these new endpoints for bounty functionality
+
+// API to get contract info (address and ABI)
+app.get('/api/contract/info', (req, res) => {
+  res.json({
+    bountyContractAddress,
+    bountyContractABI
+  });
+});
+
+// API to create a new bounty (this will be called from the frontend)
+app.post('/api/bounties/create', async (req, res) => {
+  const { 
+    projectId, 
+    issueNumber, 
+    issueTitle, 
+    issueUrl, 
+    amount,
+    difficultyLevel, 
+    deadline,
+    ownerAddress 
+  } = req.body;
   
-  if (!proofType || !proofData) {
-    return res.status(400).json({ error: 'Missing proof type or data' });
+  if (!projectId || !issueNumber || !issueTitle || !issueUrl || !amount || !difficultyLevel) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required fields'
+    });
   }
   
   try {
-    // In a real application, you would call the zkVerify API here
-    // This is a placeholder to demonstrate the endpoint structure
-    console.log(`Would submit ${proofType} proof to zkVerify`);
-    
-    // Simulate successful verification
-    setTimeout(() => {
-      res.json({
-        success: true,
-        verificationId: `zkv-${Date.now()}`,
-        txHash: `0x${crypto.randomBytes(32).toString('hex')}`,
-        timestamp: Date.now()
+    // Connect to the bounty contract
+    if (!bountyContractAddress) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Bounty contract not configured' 
       });
-    }, 1000); // Simulate network delay
+    }
+    
+    // Get the payment token address from the contract
+    const paymentTokenAddress = await bountyContract.paymentToken();
+    console.log(`Using payment token at address: ${paymentTokenAddress}`);
+    
+    // Create token contract instance
+    const tokenContract = new ethers.Contract(
+      paymentTokenAddress,
+      [
+        "function approve(address spender, uint256 amount) external returns (bool)",
+        "function allowance(address owner, address spender) external view returns (uint256)"
+      ],
+      wallet
+    );
+    
+    const weiAmount = ethers.utils.parseEther(amount.toString());
+    
+    // First check if we need to approve tokens
+    const allowance = await tokenContract.allowance(wallet.address, bountyContractAddress);
+    if (allowance.lt(weiAmount)) {
+      console.log(`Approving ${amount} tokens for the bounty contract...`);
+      
+      // Approve the contract to spend tokens
+      const approveTx = await tokenContract.approve(
+        bountyContractAddress, 
+        ethers.constants.MaxUint256  // Approve max amount to avoid multiple approvals
+      );
+      
+      await approveTx.wait();
+      console.log(`Token approval successful: ${approveTx.hash}`);
+    }
+    
+    // Now create the bounty with a manual gas limit
+    const tx = await bountyContract.createBounty(
+      projectId,
+      issueNumber, // Use issueNumber as issueId if you don't have a separate ID
+      issueNumber,
+      issueTitle,
+      issueUrl,
+      weiAmount,
+      difficultyLevel,
+      { gasLimit: 500000 } // Add manual gas limit to avoid estimation issues
+    );
+    
+    const receipt = await tx.wait();
+    
+    // Extract bounty ID from event logs
+    const bountyCreatedEvent = receipt.events?.find(e => e.event === 'BountyCreated');
+    const bountyId = bountyCreatedEvent?.args?.bountyId.toString() || '0';
+    
+    res.json({
+      success: true,
+      bountyId,
+      txHash: receipt.transactionHash
+    });
+    
   } catch (error) {
-    console.error('Error submitting proof to zkVerify:', error);
-    res.status(500).json({ error: 'Failed to submit proof' });
+    console.error('Error creating bounty:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to create bounty'
+    });
   }
 });
+
+// API to check if an issue already has a bounty
+app.get('/api/bounties/issue/:issueNumber', async (req, res) => {
+  const { issueNumber } = req.params;
+  const { projectId } = req.query;
+  
+  if (!issueNumber || !projectId) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameters'
+    });
+  }
+  
+  try {
+    // Connect to the bounty contract
+    if (!bountyContractAddress) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Bounty contract not configured' 
+      });
+    }
+    
+    // Query contract using provider (read-only)
+    let queryContract;
+    if (!bountyContract) {
+      queryContract = new ethers.Contract(
+        bountyContractAddress, 
+        bountyContractABI,
+        provider
+      );
+    } else {
+      queryContract = bountyContract;
+    }
+    
+    // Get bounty for the issue if it exists
+    const bountyId = await queryContract.getBountyIdByIssue(projectId, issueNumber);
+    
+    if (bountyId && bountyId.toString() !== '0') {
+      // Bounty exists, get its details
+      const bountyDetails = await queryContract.getBounty(bountyId);
+      
+      res.json({
+        success: true,
+        exists: true,
+        bounty: {
+          id: bountyId.toString(),
+          projectId: bountyDetails.projectId.toString(),
+          issueNumber: bountyDetails.issueNumber.toString(),
+          amount: bountyDetails.amount.toString(),
+          deadline: bountyDetails.deadline.toString(),
+          createdAt: bountyDetails.createdAt.toString(),
+          status: getBountyStatusText(bountyDetails.status)
+        }
+      });
+    } else {
+      // No bounty for this issue yet
+      res.json({
+        success: true,
+        exists: false
+      });
+    }
+  } catch (error) {
+    console.error('Error checking bounty for issue:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to check bounty'
+    });
+  }
+});
+
+// API to get all active bounties for a project
+app.get('/api/bounties/project/:projectId', async (req, res) => {
+  const { projectId } = req.params;
+  
+  try {
+    // Connect to the bounty contract
+    if (!bountyContractAddress) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Bounty contract not configured' 
+      });
+    }
+    
+    // Query contract using provider (read-only)
+    let queryContract;
+    if (!bountyContract) {
+      queryContract = new ethers.Contract(
+        bountyContractAddress, 
+        bountyContractABI,
+        provider
+      );
+    } else {
+      queryContract = bountyContract;
+    }
+    
+    // Get all bounties for the project
+    const bountyIds = await queryContract.getProjectBounties(projectId);
+    
+    // Get details for each bounty
+    const bounties = [];
+    for (const id of bountyIds) {
+      try {
+        const bountyDetails = await queryContract.getBounty(id);
+        
+        bounties.push({
+          id: id.toString(),
+          projectId: bountyDetails.projectId.toString(),
+          issueNumber: bountyDetails.issueNumber.toString(),
+          amount: bountyDetails.amount.toString(),
+          deadline: bountyDetails.deadline.toString(),
+          createdAt: bountyDetails.createdAt.toString(),
+          status: getBountyStatusText(bountyDetails.status)
+        });
+      } catch (error) {
+        console.error(`Error getting details for bounty ${id}:`, error);
+      }
+    }
+    
+    res.json({
+      success: true,
+      bounties
+    });
+  } catch (error) {
+    console.error('Error getting project bounties:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get bounties'
+    });
+  }
+});
+
+// Helper function to convert bounty status codes to text
+function getBountyStatusText(statusCode) {
+  const statuses = ['OPEN', 'ASSIGNED', 'SUBMITTED', 'COMPLETED', 'CANCELLED'];
+  return statuses[statusCode] || 'UNKNOWN';
+}
 
 // Helper function to get language statistics
 function getLanguageStats(repos) {
   const stats = {};
-  
   repos.forEach(repo => {
     if (repo.language) {
       stats[repo.language] = (stats[repo.language] || 0) + 1;
     }
   });
-  
   return stats;
 }
 
@@ -696,5 +1037,9 @@ app.listen(PORT, () => {
   
   if (!process.env.PRIVATE_KEY || !contractAddress) {
     console.warn('⚠️ Blockchain verification is in development mode. Changes will not be saved on-chain.');
+  }
+  
+  if (!bountyContractAddress) {
+    console.warn('⚠️ Bounty contract address not set. Project registration will not work.');
   }
 });

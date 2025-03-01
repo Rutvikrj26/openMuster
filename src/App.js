@@ -18,6 +18,8 @@ import ExploreBounties from './components/ExploreBounties';
 import BountyDetail from './components/BountyDetail';
 import ProjectOnboarding from './components/ProjectOnboarding';
 import BountyList from './components/BountyList';
+import ProjectsList from './components/ProjectsList';
+import ProjectIssues from './components/ProjectIssues';
 
 // Contract ABI
 import { CONTRACT_ABI } from './constants/contractAbi';
@@ -360,7 +362,9 @@ function App() {
           navItems={[
             { label: 'Explore Bounties', path: '/explore-bounties' },
             { label: 'Contributor Dashboard', path: '/contributor-dashboard' },
-            { label: 'Create Project', path: '/project-onboarding' }
+            { label: 'Create Project', path: '/project-onboarding' },
+            { label: 'Projects', path: '/projects' },
+            { label: 'Profile', path: `/results/${verifiedUsername}` },
           ]}
         />
         
@@ -499,7 +503,17 @@ function App() {
                 )
               } 
             />
+
+          <Route path="/projects" element={
+            <ProjectsList account={account} />
+          } />
+
+          <Route path="/projects/:projectId" element={
+            <ProjectIssues account={account} />
+          } />
+
           </Routes>
+
         </main>
         
         <footer className="py-6 text-center text-gray-400 text-sm border-t border-gray-800">
