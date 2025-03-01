@@ -37,7 +37,7 @@ const UsernameInput = ({ account, contract, verified }) => {
       
       // Store on blockchain (without including private repos)
       const tx = await contract.addProfileScore(
-        analysis.normalizedUsername,
+        normalizedUsername,
         Math.round(analysis.overallScore),
         analysis.metrics.profileCompleteness,
         analysis.metrics.followers,
